@@ -2034,6 +2034,16 @@ def getState {α β σ : Type} [Inhabited σ] (ext : PersistentEnvExtension α �
 
 end PersistentEnvExtension
 
+private unsafe def Kernel.Environment.getPersistentExtStateUnsafe {α β σ : Type} [Inhabited σ]
+    (env : Kernel.Environment) (ext : PersistentEnvExtension α β σ) : σ :=
+  -- safety: as in `getStateUnsafe`
+  (ext.toEnvExtension.getStateImpl env.extensions).state
+
+/-- Returns the state of `ext` stored in a kernel environment, for use by the C++ kernel. -/
+@[implemented_by Kernel.Environment.getPersistentExtStateUnsafe]
+opaque Kernel.Environment.getPersistentExtState {α β σ : Type} [Inhabited σ]
+    (env : Kernel.Environment) (ext : PersistentEnvExtension α β σ) : σ
+
 builtin_initialize persistentEnvExtensionsRef : IO.Ref (Array (PersistentEnvExtension EnvExtensionEntry EnvExtensionEntry EnvExtensionState)) ← IO.mkRef #[]
 
 -- Helper structure to enable cyclic default values of `exportEntriesFn` and `exportEntriesFnEx`.

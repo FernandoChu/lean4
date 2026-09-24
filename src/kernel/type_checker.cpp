@@ -28,6 +28,7 @@ static name * g_kernel_fresh = nullptr;
 static expr * g_dont_care    = nullptr;
 static name * g_bool_true    = nullptr;
 static name * g_eager_reduce = nullptr;
+static name * g_eq           = nullptr;
 /* Upper bound (in bytes) on the numerals the kernel computes while reducing `Nat`
    literals (see `reduce_nat`). Protects the kernel from spending unbounded memory
    and time evaluating giant numerals. Configurable via the `LEAN_NAT_MAX_SIZE`
@@ -51,8 +52,12 @@ static expr * g_nat_xor      = nullptr;
 static expr * g_nat_shiftLeft  = nullptr;
 static expr * g_nat_shiftRight = nullptr;
 
+extern "C" uint8 lean_kernel_has_rewrite_rules(object * env);
+extern "C" object * lean_kernel_get_rewrite_rules(object * env, object * head);
+
 type_checker::state::state(environment const & env):
-    m_env(env), m_ngen(*g_kernel_fresh) {}
+    m_env(env), m_ngen(*g_kernel_fresh),
+    m_has_rewrite_rules(lean_kernel_has_rewrite_rules(env.to_obj_arg()) != 0) {}
 
 /** \brief Make sure \c e "is" a sort, and return the corresponding sort.
     If \c e is not a sort, then the whnf procedure is invoked.
@@ -461,6 +466,177 @@ static bool is_let_fvar(local_ctx const & lctx, expr const & e) {
 /** \brief Weak head normal form core procedure. It does not perform delta reduction nor normalization extensions.
     If `cheap == true`, then we don't perform delta-reduction when reducing major premise of recursors and projections.
     We also do not cache results. */
+/* Rewrite rules are re-derived from the types of the declarations tagged `@[rewrite_rule]`, so the
+   kernel only trusts the elaborator for the choice of which checked declarations to use as rules. */
+static optional<rewrite_rule> decode_rewrite_rule(environment const & env, name const & decl_name) {
+    optional<constant_info> info = env.find(decl_name);
+    if (!info || !(info->is_theorem() || info->is_axiom()))
+        return optional<rewrite_rule>();
+    expr type = info->get_type();
+    unsigned num_vars = 0;
+    while (true) {
+        if (is_mdata(type)) {
+            type = mdata_expr(type);
+        } else if (is_pi(type)) {
+            type = binding_body(type);
+            num_vars++;
+        } else {
+            break;
+        }
+    }
+    buffer<expr> args;
+    expr const & eq = get_app_args(type, args);
+    if (!is_constant(eq) || const_name(eq) != *g_eq || args.size() != 3)
+        return optional<rewrite_rule>();
+    expr lhs = args[1];
+    while (is_mdata(lhs))
+        lhs = mdata_expr(lhs);
+    if (!is_constant(get_app_fn(lhs)) || !is_app(lhs))
+        return optional<rewrite_rule>();
+    return optional<rewrite_rule>(rewrite_rule{info->get_lparams(), num_vars, get_app_num_args(lhs), lhs, args[2]});
+}
+
+std::vector<rewrite_rule> const & type_checker::get_rewrite_rules(name const & head) {
+    auto it = m_st->m_rewrite_rules.find(head);
+    if (it != m_st->m_rewrite_rules.end())
+        return it->second;
+    std::vector<rewrite_rule> rules;
+    names decl_names(lean_kernel_get_rewrite_rules(env().to_obj_arg(), head.to_obj_arg()));
+    for (name const & decl_name : decl_names) {
+        if (optional<rewrite_rule> rule = decode_rewrite_rule(env(), decl_name))
+            rules.push_back(*rule);
+    }
+    return m_st->m_rewrite_rules.insert(mk_pair(head, rules)).first->second;
+}
+
+struct rewrite_match {
+    buffer<optional<expr>>       m_subst;
+    buffer<name>                 m_lparams;
+    buffer<level>                m_lvalues;
+    /* Checked once all universe parameters are bound: closed subpatterns and non-parameter levels
+       (with the rule's universe parameters still to be instantiated), and repeated variables. */
+    buffer<expr_pair>            m_closed;
+    buffer<std::pair<level, level>> m_levels;
+    buffer<expr_pair>            m_nonlinear;
+};
+
+void type_checker::match_rewrite_level(level const & p, level const & l, rewrite_match & m) {
+    if (is_param(p) && std::find(m.m_lparams.begin(), m.m_lparams.end(), param_id(p)) == m.m_lparams.end()) {
+        m.m_lparams.push_back(param_id(p));
+        m.m_lvalues.push_back(l);
+    } else {
+        m.m_levels.push_back(mk_pair(p, l));
+    }
+}
+
+bool type_checker::match_rewrite_pattern(expr const & p, expr const & e, rewrite_match & m) {
+    if (!has_loose_bvars(p)) {
+        m.m_closed.push_back(mk_pair(p, e));
+        return true;
+    }
+    if (is_mdata(p))
+        return match_rewrite_pattern(mdata_expr(p), e, m);
+    if (is_bvar(p)) {
+        unsigned idx = bvar_idx(p).get_small_value();
+        if (idx >= m.m_subst.size())
+            return false;
+        if (m.m_subst[idx])
+            m.m_nonlinear.push_back(mk_pair(*m.m_subst[idx], e));
+        else
+            m.m_subst[idx] = e;
+        return true;
+    }
+    expr const & p_fn = get_app_fn(p);
+    if (!is_app(p) || !is_constant(p_fn))
+        return false;
+    unsigned nargs = get_app_num_args(p);
+    auto is_match = [&](expr const & t) {
+        expr const & fn = get_app_fn(t);
+        return is_constant(fn) && const_name(fn) == const_name(p_fn) && get_app_num_args(t) == nargs;
+    };
+    expr t = e;
+    while (is_mdata(t))
+        t = mdata_expr(t);
+    if (!is_match(t)) {
+        t = whnf(t);
+        if (is_nat_lit(t))
+            t = nat_lit_to_constructor(t);
+        if (!is_match(t))
+            return false;
+    }
+    levels const & p_ls = const_levels(p_fn);
+    levels const & t_ls = const_levels(get_app_fn(t));
+    if (length(p_ls) != length(t_ls))
+        return false;
+    for (auto p_it = p_ls.begin(), t_it = t_ls.begin(); p_it != p_ls.end(); ++p_it, ++t_it)
+        match_rewrite_level(*p_it, *t_it, m);
+    buffer<expr> p_args, t_args;
+    get_app_args(p, p_args);
+    get_app_args(t, t_args);
+    for (unsigned i = 0; i < nargs; i++) {
+        if (!match_rewrite_pattern(p_args[i], t_args[i], m))
+            return false;
+    }
+    return true;
+}
+
+/* Instantiates `rule` if its left-hand side matches `e`, which must have exactly `rule.m_num_args` arguments. */
+optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule, expr const & e) {
+    rewrite_match m;
+    m.m_subst.resize(rule.m_num_vars);
+    if (!match_rewrite_pattern(rule.m_lhs, e, m))
+        return none_expr();
+    buffer<level> ls;
+    for (name const & p : rule.m_lparams) {
+        auto it = std::find(m.m_lparams.begin(), m.m_lparams.end(), p);
+        if (it == m.m_lparams.end())
+            return none_expr();
+        ls.push_back(m.m_lvalues[it - m.m_lparams.begin()]);
+    }
+    levels lvls(ls.begin(), ls.end());
+    buffer<expr> subst;
+    for (optional<expr> const & v : m.m_subst) {
+        if (!v)
+            return none_expr();
+        subst.push_back(*v);
+    }
+    for (auto const & p : m.m_levels) {
+        if (!is_equivalent(instantiate(p.first, rule.m_lparams, lvls), p.second))
+            return none_expr();
+    }
+    for (expr_pair const & p : m.m_closed) {
+        if (!is_def_eq(instantiate_lparams(p.first, rule.m_lparams, lvls), p.second))
+            return none_expr();
+    }
+    for (expr_pair const & p : m.m_nonlinear) {
+        if (!is_def_eq(p.first, p.second))
+            return none_expr();
+    }
+    return some_expr(instantiate(instantiate_lparams(rule.m_rhs, rule.m_lparams, lvls), subst.size(), subst.data()));
+}
+
+/* Rewrites `e` with the first applicable rewrite rule, if any. */
+optional<expr> type_checker::reduce_rewrite_rule(expr const & e) {
+    if (!m_st->m_has_rewrite_rules)
+        return none_expr();
+    expr const & fn = get_app_fn(e);
+    if (!is_constant(fn))
+        return none_expr();
+    std::vector<rewrite_rule> const & rules = get_rewrite_rules(const_name(fn));
+    if (rules.empty())
+        return none_expr();
+    buffer<expr> args;
+    get_app_args(e, args);
+    for (rewrite_rule const & rule : rules) {
+        if (args.size() < rule.m_num_args)
+            continue;
+        if (optional<expr> r = instantiate_rewrite_rule(rule, mk_app(fn, rule.m_num_args, args.data()))) {
+            return some_expr(mk_app(*r, args.size() - rule.m_num_args, args.data() + rule.m_num_args));
+        }
+    }
+    return none_expr();
+}
+
 expr type_checker::whnf_core(expr const & e, bool cheap_rec, bool cheap_proj) {
     scope_rec_depth guard;
     check_system("type checker: whnf", /* do_check_interrupted */ true);
@@ -526,6 +702,8 @@ expr type_checker::whnf_core(expr const & e, bool cheap_rec, bool cheap_proj) {
                         m_diag->record_unfold(const_name(f));
                 }
                 /* iota-reduction and quotient reduction rules */
+                return whnf_core(*r, cheap_rec, cheap_proj);
+            } else if (auto r = reduce_rewrite_rule(e)) {
                 return whnf_core(*r, cheap_rec, cheap_proj);
             } else {
                 return e;
@@ -1245,6 +1423,8 @@ void initialize_type_checker() {
     g_bool_true    = new name{"Bool", "true"};
     mark_persistent(g_bool_true->raw());
     g_eager_reduce = new name{"eagerReduce"};
+    g_eq           = new name{"Eq"};
+    mark_persistent(g_eq->raw());
     g_dont_care    = new_persistent_expr_const("dontcare");
     g_nat_zero     = new_persistent_expr_const({"Nat", "zero"});
     g_nat_succ     = new_persistent_expr_const({"Nat", "succ"});
@@ -1267,6 +1447,7 @@ void initialize_type_checker() {
 }
 
 void finalize_type_checker() {
+    delete g_eq;
     delete g_kernel_fresh;
     delete g_bool_true;
     delete g_eager_reduce;

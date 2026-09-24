@@ -12,12 +12,24 @@ Author: Leonardo de Moura
 #include "runtime/flet.h"
 #include "util/lbool.h"
 #include "util/name_set.h"
+#include "util/name_hash_map.h"
 #include "util/name_generator.h"
 #include "kernel/environment.h"
 #include "kernel/local_ctx.h"
 #include "kernel/expr_maps.h"
 
 namespace lean {
+/* A rewrite rule `lhs ↦ rhs` derived from a declaration `∀ xs, lhs = rhs` tagged `@[rewrite_rule]`.
+   Pattern variable `i` is the loose bound variable `i` in `m_lhs` and `m_rhs`. */
+struct rewrite_rule {
+    names    m_lparams;
+    unsigned m_num_vars;
+    unsigned m_num_args;
+    expr     m_lhs;
+    expr     m_rhs;
+};
+struct rewrite_match;
+
 /** \brief Lean Type Checker. It can also be used to infer types, check whether a
     type \c A is convertible to a type \c B, etc. */
 class type_checker {
@@ -40,6 +52,8 @@ public:
         expr_pair_set             m_success;
         expr_pair_set             m_failure;
         expr_map<expr>            m_unfold;
+        bool                      m_has_rewrite_rules;
+        name_hash_map<std::vector<rewrite_rule>> m_rewrite_rules;
         friend type_checker;
     public:
         state(environment const & env);
@@ -120,6 +134,12 @@ private:
     optional<expr> reduce_pow(expr const & e);
     optional<expr> reduce_shiftLeft(expr const & e);
     optional<expr> reduce_nat(expr const & e);
+
+    std::vector<rewrite_rule> const & get_rewrite_rules(name const & head);
+    void match_rewrite_level(level const & p, level const & l, rewrite_match & m);
+    bool match_rewrite_pattern(expr const & p, expr const & e, rewrite_match & m);
+    optional<expr> instantiate_rewrite_rule(rewrite_rule const & rule, expr const & e);
+    optional<expr> reduce_rewrite_rule(expr const & e);
 public:
     type_checker(environment const & env, local_ctx const & lctx, diagnostics * diag = nullptr, definition_safety ds = definition_safety::safe);
     type_checker(environment const & env, diagnostics * diag = nullptr, definition_safety ds = definition_safety::safe):type_checker(env, local_ctx(), diag, ds) {}
