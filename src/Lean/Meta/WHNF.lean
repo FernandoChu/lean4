@@ -14,6 +14,7 @@ public import Lean.Meta.CtorRecognizer
 public import Lean.Meta.Match.MatcherInfo
 public import Lean.Meta.Match.MatchPatternAttr
 public import Lean.Meta.Transform
+public import Lean.RewriteRules
 import Init.Data.Range.Polymorphic.Iterators
 
 public section
@@ -614,6 +615,95 @@ partial def consumeUnusedLet (e : Expr) (consumeNondep : Bool := false) : Expr :
   | .letE _ _ _ b nondep => if b.hasLooseBVars || (nondep && !consumeNondep) then e else consumeUnusedLet b consumeNondep
   | _ => e
 
+/-! Rewrite rules, see `Lean.RewriteRules`. -/
+
+private structure RewriteMatchState where
+  subst      : Array (Option Expr)
+  lsubst     : NameMap Level := {}
+  /-- Closed subpatterns and their targets, checked up to defeq once all universes are bound. -/
+  closed     : Array (Expr × Expr) := #[]
+  /-- Levels that are not a bare universe parameter, checked once all universes are bound. -/
+  levels     : Array (Level × Level) := #[]
+  /-- Repeated occurrences of pattern variables, checked up to defeq. -/
+  nonlinear  : Array (Expr × Expr) := #[]
+
+private abbrev RewriteMatchM := StateT RewriteMatchState MetaM
+
+private def matchRewriteLevel (p u : Level) : RewriteMatchM Unit := do
+  if let .param n := p then
+    unless (← get).lsubst.contains n do
+      modify fun s => { s with lsubst := s.lsubst.insert n u }
+      return
+  modify fun s => { s with levels := s.levels.push (p, u) }
+
+/--
+Returns the arguments of `e` if it is an application of `c` to `n` arguments, possibly after
+putting it in weak head normal form.
+-/
+private def matchRewriteHead? (e : Expr) (c : Name) (n : Nat) : MetaM (Option (List Level × Array Expr)) := do
+  let e := e.consumeMData
+  if e.isAppOfArity c n then
+    return some (e.getAppFn.constLevels!, e.getAppArgs)
+  let e ← (← whnf e).toCtorIfLit
+  if e.isAppOfArity c n then
+    return some (e.getAppFn.constLevels!, e.getAppArgs)
+  return none
+
+private partial def matchRewritePattern (p e : Expr) : RewriteMatchM Bool := do
+  if !p.hasLooseBVars then
+    modify fun s => { s with closed := s.closed.push (p, e) }
+    return true
+  match p.consumeMData with
+  | .bvar i =>
+    if let some v := (← get).subst[i]! then
+      modify fun s => { s with nonlinear := s.nonlinear.push (v, e) }
+    else
+      modify fun s => { s with subst := s.subst.set! i (some e) }
+    return true
+  | p@(.app ..) =>
+    let .const c us := p.getAppFn | return false
+    let ps := p.getAppArgs
+    let some (vs, es) ← matchRewriteHead? e c ps.size | return false
+    unless us.length == vs.length do return false
+    for u in us, v in vs do
+      matchRewriteLevel u v
+    for p in ps, e in es do
+      unless (← matchRewritePattern p e) do return false
+    return true
+  | _ => return false
+
+/-- Instantiates `rule` if its left-hand side matches `e`, which must have exactly as many
+arguments as the left-hand side. -/
+private def instantiateRewriteRule? (rule : RewriteRule) (e : Expr) : MetaM (Option Expr) :=
+  -- Matching must not assign metavariables of the surrounding context.
+  withNewMCtxDepth do
+    let (ok, s) ← (matchRewritePattern rule.lhs e).run { subst := .replicate rule.numVars none }
+    unless ok do return none
+    let some lvls := rule.levelParams.mapM s.lsubst.find? | return none
+    let some subst := s.subst.mapM id | return none
+    let instLevel (u : Level) := u.instantiateParams rule.levelParams lvls
+    for (p, u) in s.levels do
+      unless (← isLevelDefEq (instLevel p) u) do return none
+    for (p, t) in s.closed do
+      unless (← isDefEq (p.instantiateLevelParams rule.levelParams lvls) t) do return none
+    for (v, t) in s.nonlinear do
+      unless (← isDefEq v t) do return none
+    return some <| (rule.rhs.instantiateLevelParams rule.levelParams lvls).instantiate subst
+
+/-- Rewrites `e` with the first applicable rewrite rule, if any. -/
+def reduceRewriteRule? (e : Expr) : MetaM (Option Expr) := do
+  let .const f _ := e.getAppFn | return none
+  let rules := getRewriteRules (← getEnv) f
+  if rules.isEmpty then return none
+  let args := e.getAppArgs
+  for rule in rules do
+    let n := rule.lhs.getAppNumArgs
+    if args.size < n then continue
+    if let some r ← instantiateRewriteRule? rule (mkAppN e.getAppFn (args.extract 0 n)) then
+      trace[Meta.whnf] "rewrite rule {rule.declName}"
+      return some (mkAppN r (args.extract n))
+  return none
+
 /--
 Apply beta-reduction, zeta-reduction (i.e., unfold let local-decls), iota-reduction,
 expand let-expressions, expand assigned meta-variables, unfold aux declarations.
@@ -663,17 +753,21 @@ where
           | .notMatcher   =>
             let .const cname lvls := f'.getAppFn | return e
             let some cinfo := (← getEnv).find? cname | return e
+            let stuck (_ : Unit) : MetaM Expr := do
+              match (← reduceRewriteRule? e) with
+              | some eNew => go eNew
+              | none      => return e
             match cinfo with
-            | .recInfo rec    => reduceRec rec lvls e.getAppArgs (fun _ => return e) (fun e => do recordUnfold cinfo.name; go e)
-            | .quotInfo rec   => reduceQuotRec rec e.getAppArgs (fun _ => return e) (fun e => do recordUnfold cinfo.name; go e)
+            | .recInfo rec    => reduceRec rec lvls e.getAppArgs stuck (fun e => do recordUnfold cinfo.name; go e)
+            | .quotInfo rec   => reduceQuotRec rec e.getAppArgs stuck (fun e => do recordUnfold cinfo.name; go e)
             | c@(.defnInfo _) => do
               if (← isAuxDef c.name) then
                 recordUnfold c.name
                 deltaBetaDefinition c lvls e.getAppRevArgs (fun _ => return e) go
               else
-                return e
-            | .axiomInfo val => recordUnfoldAxiom val.name; return e
-            | _ => return e
+                stuck ()
+            | .axiomInfo val => recordUnfoldAxiom val.name; stuck ()
+            | _ => stuck ()
       | .proj _ i c =>
         let k (c : Expr) := do
           match (← projectCore? c i) with

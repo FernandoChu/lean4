@@ -46,6 +46,7 @@ public import Lean.Namespace
 public import Lean.EnvExtension
 public import Lean.ErrorExplanation
 public import Lean.DefEqAttrib
+public import Lean.RewriteRules
 public import Lean.Shell
 public import Lean.ExtraModUses
 public import Lean.OriginalConstKind
