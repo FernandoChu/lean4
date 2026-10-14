@@ -13,6 +13,7 @@ public import Lean.ReducibilityAttrs
 public import Lean.Util.MonadBacktrack
 public import Lean.Compiler.InlineAttrs
 public import Lean.Meta.TransparencyMode
+public import Lean.ControlledUnfolding
 import Init.Data.Range.Polymorphic.Iterators
 import Init.While
 
@@ -2790,7 +2791,11 @@ where
             if isPrivateName constName then mkPrivateName env constName else constName
           withDeclNameForAuxNaming namePrefix do
             withoutExporting (when := isPrivateName constName) do
-              realize
+              -- e.g. equation lemmas of a controlled definition must unfold it
+              if (getUnfoldPolicy? (← getEnv) forConst).isSome then
+                withUnfoldings #[forConst] realize
+              else
+                realize
           -- Meta code working on a non-exported declaration should usually do so inside
           -- `withoutExporting` but we're lenient here in case this call is the only one that needs
           -- the setting.

@@ -58,6 +58,8 @@ def canUnfoldAtMatcher (cfg : Config) (info : ConstantInfo) : CoreM Bool := do
    || info.name == ``HMod.hMod || info.name == ``Mod.mod
 
 def canUnfold (info : ConstantInfo) : MetaM Bool := do
+  -- controlled unfolding is not subject to transparency settings
+  unless canUnfoldUnderPolicy (← getEnv) (← getOptions) info.name do return false
   let ctx ← read
   let cfg ← getConfig
   match ctx.customCanUnfoldPredicate? with

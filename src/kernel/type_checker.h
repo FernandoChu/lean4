@@ -54,6 +54,11 @@ public:
         expr_map<expr>            m_unfold;
         bool                      m_has_rewrite_rules;
         name_hash_map<std::vector<rewrite_rule>> m_rewrite_rules;
+        /* Controlled unfolding, see `Lean.ControlledUnfolding`: the active set of the declaration
+           being checked, and which constants it allows to unfold. */
+        bool                      m_has_unfold_policies;
+        name_set                  m_unfold_active;
+        name_hash_map<bool>       m_can_unfold;
         friend type_checker;
     public:
         state(environment const & env);
@@ -140,9 +145,13 @@ private:
     bool match_rewrite_pattern(expr const & p, expr const & e, rewrite_match & m);
     optional<expr> instantiate_rewrite_rule(rewrite_rule const & rule, expr const & e);
     optional<expr> reduce_rewrite_rule(expr const & e);
+    bool can_unfold(name const & n) const;
+    bool is_rewrite_rule_active(name const & n) const;
 public:
     type_checker(environment const & env, local_ctx const & lctx, diagnostics * diag = nullptr, definition_safety ds = definition_safety::safe);
     type_checker(environment const & env, diagnostics * diag = nullptr, definition_safety ds = definition_safety::safe):type_checker(env, local_ctx(), diag, ds) {}
+    /* Assumes the active set recorded for the value of `decl_name`. Must be called before any reduction. */
+    void set_unfold_scope(name const & decl_name);
     type_checker(type_checker const &) = delete;
     ~type_checker();
 
@@ -188,6 +197,8 @@ public:
     optional<expr> unfold_definition(expr const & e);
 };
 
+/* Whether the value of `decl_name` is checked under a non-empty active set, see `type_checker::set_unfold_scope`. */
+bool has_unfold_scope(environment const & env, name const & decl_name);
 void initialize_type_checker();
 void finalize_type_checker();
 }

@@ -54,10 +54,64 @@ static expr * g_nat_shiftRight = nullptr;
 
 extern "C" uint8 lean_kernel_has_rewrite_rules(object * env);
 extern "C" object * lean_kernel_get_rewrite_rules(object * env, object * head);
+extern "C" uint8 lean_kernel_has_unfold_policies(object * env);
+extern "C" uint8 lean_kernel_unfold_policy_kind(object * env, object * decl_name);
+extern "C" object * lean_kernel_unfold_policy_requires(object * env, object * decl_name);
 
 type_checker::state::state(environment const & env):
     m_env(env), m_ngen(*g_kernel_fresh),
-    m_has_rewrite_rules(lean_kernel_has_rewrite_rules(env.to_obj_arg()) != 0) {}
+    m_has_rewrite_rules(lean_kernel_has_rewrite_rules(env.to_obj_arg()) != 0),
+    m_has_unfold_policies(lean_kernel_has_unfold_policies(env.to_obj_arg()) != 0) {}
+
+/* Policy kinds, see `kernelUnfoldPolicyKind`. */
+static constexpr uint8 g_unfold_abbrev     = 1;
+static constexpr uint8 g_unfold_controlled = 2;
+static constexpr uint8 g_unfold_guarded    = 4;
+
+static names get_unfold_requires(environment const & env, name const & decl_name) {
+    return names(lean_kernel_unfold_policy_requires(env.to_obj_arg(), decl_name.to_obj_arg()));
+}
+
+bool has_unfold_scope(environment const & env, name const & decl_name) {
+    return lean_kernel_has_unfold_policies(env.to_obj_arg()) && !is_nil(get_unfold_requires(env, decl_name));
+}
+
+void type_checker::set_unfold_scope(name const & decl_name) {
+    if (!m_st->m_has_unfold_policies)
+        return;
+    for (name const & n : get_unfold_requires(env(), decl_name))
+        m_st->m_unfold_active.insert(n);
+}
+
+/* Policies only ever forbid unfoldings, so the kernel does not need to trust them. */
+bool type_checker::can_unfold(name const & n) const {
+    if (!m_st->m_has_unfold_policies)
+        return true;
+    auto it = m_st->m_can_unfold.find(n);
+    if (it != m_st->m_can_unfold.end())
+        return it->second;
+    uint8 kind = lean_kernel_unfold_policy_kind(env().to_obj_arg(), n.to_obj_arg());
+    bool r = true;
+    if (kind & g_unfold_controlled) {
+        r = m_st->m_unfold_active.contains(n);
+    } else if (kind & g_unfold_abbrev) {
+        for (name const & req : get_unfold_requires(env(), n)) {
+            if (!m_st->m_unfold_active.contains(req)) {
+                r = false;
+                break;
+            }
+        }
+    }
+    m_st->m_can_unfold.insert(mk_pair(n, r));
+    return r;
+}
+
+bool type_checker::is_rewrite_rule_active(name const & n) const {
+    if (!m_st->m_has_unfold_policies)
+        return true;
+    uint8 kind = lean_kernel_unfold_policy_kind(env().to_obj_arg(), n.to_obj_arg());
+    return !(kind & g_unfold_guarded) || m_st->m_unfold_active.contains(n);
+}
 
 /** \brief Make sure \c e "is" a sort, and return the corresponding sort.
     If \c e is not a sort, then the whnf procedure is invoked.
@@ -503,6 +557,8 @@ std::vector<rewrite_rule> const & type_checker::get_rewrite_rules(name const & h
     std::vector<rewrite_rule> rules;
     names decl_names(lean_kernel_get_rewrite_rules(env().to_obj_arg(), head.to_obj_arg()));
     for (name const & decl_name : decl_names) {
+        if (!is_rewrite_rule_active(decl_name))
+            continue;
         if (optional<rewrite_rule> rule = decode_rewrite_rule(env(), decl_name))
             rules.push_back(*rule);
     }
@@ -730,7 +786,8 @@ optional<constant_info> type_checker::is_delta(expr const & e) const {
     expr const & f = get_app_fn(e);
     if (is_constant(f)) {
         if (optional<constant_info> info = env().find(const_name(f)))
-            if (info->has_value() && length(const_levels(f)) == info->get_num_lparams())
+            if (info->has_value() && length(const_levels(f)) == info->get_num_lparams() &&
+                can_unfold(const_name(f)))
                 return info;
     }
     return none_constant_info();

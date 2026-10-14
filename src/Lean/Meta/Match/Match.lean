@@ -1114,7 +1114,9 @@ def mkMatcherAuxDefinition (name : Name) (type : Expr) (value : Expr) (isSplitte
     let addMatcher : MatcherInfo → MetaM Unit := fun mi => do
       -- matcher bodies should always be exported, if not private anyway
       withExporting do
-        addDecl decl
+        -- matchers are shared between declarations, so they must not depend on an unfolding scope
+        withoutUnfoldings do
+          addDecl decl
       -- If `matcher` is not private, mark it `[instance_reducible]` so that TC synthesis
       -- can unfold it. Matchers aren't strictly type class instances, but TC instances often
       -- contain `match` expressions in their bodies (e.g. `instance : Decidable (match ...)`),

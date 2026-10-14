@@ -131,6 +131,18 @@ static void check_constant_val(environment const & env, constant_val const & v, 
     checker.ensure_sort(sort, v.get_type());
 }
 
+/* The value of a declaration is checked under its unfolding scope, see `type_checker::set_unfold_scope`,
+   and its type is not. Returns `checker` itself when there is no scope. */
+static type_checker & value_checker(environment const & env, name const & n, type_checker & checker,
+                                    std::unique_ptr<type_checker> & scoped, diagnostics * diag,
+                                    definition_safety ds = definition_safety::safe) {
+    if (!has_unfold_scope(env, n))
+        return checker;
+    scoped.reset(new type_checker(env, diag, ds));
+    scoped->set_unfold_scope(n);
+    return *scoped;
+}
+
 static void check_constant_val(environment const & env, constant_val const & v, diagnostics * diag, definition_safety ds) {
     type_checker checker(env, diag, ds);
     check_constant_val(env, v, checker);
@@ -170,8 +182,11 @@ environment environment::add_definition(declaration const & d, bool check) const
         if (check) {
             type_checker checker(new_env, diag.get(), definition_safety::unsafe);
             check_no_metavar_no_fvar(new_env, v.get_name(), v.get_value());
-            expr val_type = checker.check(v.get_value(), v.get_lparams());
-            if (!checker.is_def_eq(val_type, v.get_type()))
+            std::unique_ptr<type_checker> scoped;
+            type_checker & vchecker = value_checker(new_env, v.get_name(), checker, scoped, diag.get(),
+                                                    definition_safety::unsafe);
+            expr val_type = vchecker.check(v.get_value(), v.get_lparams());
+            if (!vchecker.is_def_eq(val_type, v.get_type()))
                 throw definition_type_mismatch_exception(new_env, d, val_type);
         }
         return diag.update(new_env);
@@ -180,8 +195,10 @@ environment environment::add_definition(declaration const & d, bool check) const
             type_checker checker(*this, diag.get());
             check_constant_val(*this, v.to_constant_val(), checker);
             check_no_metavar_no_fvar(*this, v.get_name(), v.get_value());
-            expr val_type = checker.check(v.get_value(), v.get_lparams());
-            if (!checker.is_def_eq(val_type, v.get_type()))
+            std::unique_ptr<type_checker> scoped;
+            type_checker & vchecker = value_checker(*this, v.get_name(), checker, scoped, diag.get());
+            expr val_type = vchecker.check(v.get_value(), v.get_lparams());
+            if (!vchecker.is_def_eq(val_type, v.get_type()))
                 throw definition_type_mismatch_exception(*this, d, val_type);
         }
         return diag.update(add(constant_info(d)));
@@ -200,8 +217,10 @@ environment environment::add_theorem(declaration const & d, bool check) const {
         if (!checker.is_prop(type))
             throw theorem_type_is_not_prop(*this, v.get_name(), type);
         check_no_metavar_no_fvar(*this, v.get_name(), val);
-        expr val_type = checker.check(val, v.get_lparams());
-        if (!checker.is_def_eq(val_type, type))
+        std::unique_ptr<type_checker> scoped;
+        type_checker & vchecker = value_checker(*this, v.get_name(), checker, scoped, diag.get());
+        expr val_type = vchecker.check(val, v.get_lparams());
+        if (!vchecker.is_def_eq(val_type, type))
             throw definition_type_mismatch_exception(*this, d, val_type);
     }
     return diag.update(add(constant_info(d)));
@@ -214,8 +233,10 @@ environment environment::add_opaque(declaration const & d, bool check) const {
         type_checker checker(*this, diag.get());
         check_constant_val(*this, v.to_constant_val(), checker);
         check_no_metavar_no_fvar(*this, v.get_name(), v.get_value());
-        expr val_type = checker.check(v.get_value(), v.get_lparams());
-        if (!checker.is_def_eq(val_type, v.get_type()))
+        std::unique_ptr<type_checker> scoped;
+        type_checker & vchecker = value_checker(*this, v.get_name(), checker, scoped, diag.get());
+        expr val_type = vchecker.check(v.get_value(), v.get_lparams());
+        if (!vchecker.is_def_eq(val_type, v.get_type()))
             throw definition_type_mismatch_exception(*this, d, val_type);
     }
     return diag.update(add(constant_info(d)));
@@ -259,8 +280,10 @@ environment environment::add_mutual(declaration const & d, bool check) const {
         type_checker checker(new_env, diag.get(), safety);
         for (definition_val const & v : vs) {
             check_no_metavar_no_fvar(new_env, v.get_name(), v.get_value());
-            expr val_type = checker.check(v.get_value(), v.get_lparams());
-            if (!checker.is_def_eq(val_type, v.get_type()))
+            std::unique_ptr<type_checker> scoped;
+            type_checker & vchecker = value_checker(new_env, v.get_name(), checker, scoped, diag.get(), safety);
+            expr val_type = vchecker.check(v.get_value(), v.get_lparams());
+            if (!vchecker.is_def_eq(val_type, v.get_type()))
                 throw definition_type_mismatch_exception(new_env, d, val_type);
         }
     }

@@ -89,6 +89,8 @@ then the result is `none`.
 -/
 private def getConstInfo? (declName : Name) (ignoreTransparency : Bool) : MetaM (Option ConstantInfo) := do
   if ignoreTransparency then
+    -- controlled unfolding is not a transparency setting
+    unless canUnfoldUnderPolicy (← getEnv) (← getOptions) declName do return none
     return (← getEnv).find? declName
   else
     getUnfoldableConst? declName
@@ -98,6 +100,8 @@ Similar to `getConstInfo?` but using `getUnfoldableConstNoEx?`.
 -/
 private def getConstInfoNoEx? (declName : Name) (ignoreTransparency : Bool) : MetaM (Option ConstantInfo) := do
   if ignoreTransparency then
+    -- controlled unfolding is not a transparency setting
+    unless canUnfoldUnderPolicy (← getEnv) (← getOptions) declName do return none
     return (← getEnv).find? declName
   else
     getUnfoldableConstNoEx? declName
@@ -693,10 +697,13 @@ private def instantiateRewriteRule? (rule : RewriteRule) (e : Expr) : MetaM (Opt
 /-- Rewrites `e` with the first applicable rewrite rule, if any. -/
 def reduceRewriteRule? (e : Expr) : MetaM (Option Expr) := do
   let .const f _ := e.getAppFn | return none
-  let rules := getRewriteRules (← getEnv) f
+  let env ← getEnv
+  let rules := getRewriteRules env f
   if rules.isEmpty then return none
+  let opts ← getOptions
   let args := e.getAppArgs
   for rule in rules do
+    unless isRewriteRuleActive env opts rule.declName do continue
     let n := rule.lhs.getAppNumArgs
     if args.size < n then continue
     if let some r ← instantiateRewriteRule? rule (mkAppN e.getAppFn (args.extract 0 n)) then

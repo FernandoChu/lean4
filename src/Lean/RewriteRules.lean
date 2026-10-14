@@ -26,6 +26,10 @@ an inductive type nor a constructor. Each pattern `pᵢ` is either
 * a term without variables from `xs`, matched up to definitional equality.
 
 Every variable in `xs` and every universe parameter of `h` must be determined by the left-hand side.
+
+`@[guarded_rewrite]` instead declares a rule that only fires within `rewriting` scopes, see
+`Lean.ControlledUnfolding`. Only theorems can be guarded rules.
+
 This is an experimental feature. Neither confluence nor termination of the resulting rewrite system
 is checked, so rules can make type checking loop or break subject reduction. A rule justified by an
 axiom is only as trustworthy as that axiom.
@@ -153,6 +157,18 @@ def addRewriteRule (declName : Name) : AttrM Unit := do
   let rule ← Meta.MetaM.run' <| mkRewriteRule declName
   modifyEnv (rewriteRuleExt.addEntry · rule)
 
+/--
+Adds the theorem `declName` as a rewrite rule that only fires where `declName` is active, see
+`Lean.ControlledUnfolding`.
+-/
+def addGuardedRewriteRule (declName : Name) : AttrM Unit := do
+  unless (← getConstInfo declName).isTheorem do
+    throwError "invalid guarded rewrite rule `{declName}`: must be a theorem"
+  let rule ← Meta.MetaM.run' <| mkRewriteRule declName
+  -- the policy must be in place before the rule becomes visible
+  modifyEnv (modifyUnfoldPolicy · declName ({ · with guardedRule := true }))
+  modifyEnv (rewriteRuleExt.addEntry · rule)
+
 builtin_initialize
   registerBuiltinAttribute {
     name  := `rewrite_rule
@@ -162,6 +178,18 @@ builtin_initialize
       Attribute.Builtin.ensureNoArgs stx
       unless kind == .global do throwAttrMustBeGlobal `rewrite_rule kind
       addRewriteRule declName
+  }
+
+builtin_initialize
+  registerBuiltinAttribute {
+    name  := `guarded_rewrite
+    descr := "turn a theorem `∀ xs, lhs = rhs` into a reduction rule `lhs ↦ rhs` that only fires \
+      within `rewriting` scopes"
+    applicationTime := .afterTypeChecking
+    add   := fun declName stx kind => do
+      Attribute.Builtin.ensureNoArgs stx
+      unless kind == .global do throwAttrMustBeGlobal `guarded_rewrite kind
+      addGuardedRewriteRule declName
   }
 
 end Lean

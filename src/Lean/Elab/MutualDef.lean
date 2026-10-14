@@ -1222,7 +1222,12 @@ where
       views.any (fun view => view.kind != .example || view.modifiers.isPublic) &&
       expandedDeclIds.any (!isPrivateName ·.declName)) do
     withSaveInfoContext do  -- save adjusted env in info tree
-    let headers ← elabHeaders views expandedDeclIds bodyPromises tacPromises
+    -- `unfolding` scopes apply to bodies only, as in the kernel; caches must not be shared across
+    -- different active sets
+    let hasUnfoldings := !(← getOptions).getActiveUnfoldings.isEmpty
+    if hasUnfoldings then Meta.resetCache
+    let headers ← withoutUnfoldings <| elabHeaders views expandedDeclIds bodyPromises tacPromises
+    if hasUnfoldings then Meta.resetCache
     let headers ← levelMVarToParamHeaders views headers
 
     -- Now that we have elaborated types, default data instances to `[instance_reducible]`. This

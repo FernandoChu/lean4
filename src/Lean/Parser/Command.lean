@@ -1057,6 +1057,24 @@ Note that the error name is not relativized to the current namespace.
 @[builtin_command_parser] def registerErrorExplanationStx := leading_parser
   optional docComment >> "register_error_explanation " >> ident >> termParser
 
+/--
+`unfolding f, g` lets the `@[controlled]` definitions `f` and `g`, and everything their values were
+checked under, unfold in the bodies (not the types) of the following declarations of the current
+section. `unfolding f in decl` does so for a single declaration. Declarations elaborated this way
+themselves only unfold where `f` and `g` do. See `Lean.ControlledUnfolding`.
+-/
+@[builtin_command_parser] def «unfolding» := leading_parser
+  "unfolding " >> sepBy1 ident ", "
+/--
+`rewriting R` activates the `@[guarded_rewrite]` rule `R` in the bodies of the following
+declarations of the current section, like `unfolding` does for controlled definitions.
+-/
+@[builtin_command_parser] def «rewriting» := leading_parser
+  "rewriting " >> sepBy1 ident ", "
+/-- `#print unfolding f` shows the unfolding policy of `f`, see `Lean.ControlledUnfolding`. -/
+@[builtin_command_parser] def printUnfolding := leading_parser
+  "#print " >> "unfolding " >> ident
+
 end Command
 
 namespace Term
@@ -1074,6 +1092,17 @@ It sets the option `opt` to the value `val` in the term `e`.
 @[builtin_term_parser] def «set_option» := leading_parser:leadPrec
   "set_option " >> identWithPartialTrailingDot >> ppSpace >> Command.optionValue >>
     withSetOptionValue (" in " >> termParser)
+
+/--
+`unfolding f, g in e` elaborates `e` with the `@[controlled]` definitions `f` and `g` unfolding. The
+result is hoisted into an auxiliary declaration that itself only unfolds where `f` and `g` do, so `e`
+may be used in a context where they do not unfold, e.g. in the type of a declaration.
+-/
+@[builtin_term_parser] def «unfolding» := leading_parser:leadPrec
+  "unfolding " >> sepBy1 ident ", " >> " in " >> termParser
+/-- `rewriting R in e` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`. -/
+@[builtin_term_parser] def «rewriting» := leading_parser:leadPrec
+  "rewriting " >> sepBy1 ident ", " >> " in " >> termParser
 end Term
 
 namespace Tactic
@@ -1087,6 +1116,16 @@ but it sets the option only within the tactics `tacs`. -/
 @[builtin_tactic_parser] def «set_option» := leading_parser:leadPrec
   "set_option " >> identWithPartialTrailingDot >> ppSpace >> Command.optionValue >>
     withSetOptionValue (" in " >> tacticSeq)
+
+/--
+`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`
+and `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.
+-/
+@[builtin_tactic_parser] def «unfolding» := leading_parser:leadPrec
+  "unfolding " >> sepBy1 ident ", " >> " in " >> tacticSeq
+/-- `rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`. -/
+@[builtin_tactic_parser] def «rewriting» := leading_parser:leadPrec
+  "rewriting " >> sepBy1 ident ", " >> " in " >> tacticSeq
 end Tactic
 
 end Parser

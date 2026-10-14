@@ -29,6 +29,13 @@
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 23, 21, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 23, 21, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 23, 21, 0]},
@@ -38,6 +45,13 @@
    "data": ["file:///completionTactics.lean", 23, 21, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 23, 21, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 23, 21, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -69,6 +83,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 23, 21, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 23, 21, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -81,6 +103,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 23, 21, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 23, 21, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 26, "character": 24}}
@@ -110,6 +140,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 26, 24, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 26, 24, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 26, 24, 0]},
@@ -119,6 +156,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 26, 24, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 26, 24, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 26, 24, 0]}],
  "isIncomplete": false}
 Resolution of open:
@@ -150,6 +194,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 26, 24, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 26, 24, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -162,6 +214,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 26, 24, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 26, 24, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 29, "character": 25}}
@@ -194,6 +254,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 32, 26, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 32, 26, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 32, 26, 0]},
@@ -203,6 +270,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 32, 26, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 32, 26, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 32, 26, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -234,6 +308,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 32, 26, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 32, 26, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -246,6 +328,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 32, 26, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 32, 26, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 35, "character": 27}}
@@ -275,6 +365,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 35, 27, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 35, 27, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 35, 27, 0]},
@@ -284,6 +381,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 35, 27, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 35, 27, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 35, 27, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -315,6 +419,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 35, 27, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 35, 27, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -327,6 +439,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 35, 27, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 35, 27, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 40, "character": 7}}
@@ -356,6 +476,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 40, 7, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 40, 7, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 40, 7, 0]},
@@ -365,6 +492,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 40, 7, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 40, 7, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 40, 7, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -396,6 +530,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 40, 7, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 40, 7, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -408,6 +550,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 40, 7, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 40, 7, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 44, "character": 2}}
@@ -437,6 +587,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 44, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 44, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 44, 2, 0]},
@@ -446,6 +603,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 44, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 44, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 44, 2, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -477,6 +641,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 44, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 44, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -489,6 +661,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 44, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 44, 2, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 49, "character": 2}}
@@ -518,6 +698,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 49, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 49, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 49, 2, 0]},
@@ -527,6 +714,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 49, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 49, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 49, 2, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -558,6 +752,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 49, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 49, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -570,6 +772,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 49, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 49, 2, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 53, "character": 2}}
@@ -599,6 +809,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 53, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 53, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 53, 2, 0]},
@@ -608,6 +825,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 53, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 53, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 53, 2, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -639,6 +863,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 53, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 53, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -651,6 +883,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 53, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 53, 2, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 59, "character": 4}}
@@ -680,6 +920,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 59, 4, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 59, 4, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 59, 4, 0]},
@@ -689,6 +936,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 59, 4, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 59, 4, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 59, 4, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -720,6 +974,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 59, 4, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 59, 4, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -732,6 +994,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 59, 4, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 59, 4, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 64, "character": 2}}
@@ -761,6 +1031,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 64, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 64, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 64, 2, 0]},
@@ -770,6 +1047,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 64, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 64, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 64, 2, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -801,6 +1085,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 64, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 64, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -813,6 +1105,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 64, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 64, 2, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 70, "character": 4}}
@@ -842,6 +1142,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 70, 4, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 70, 4, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 70, 4, 0]},
@@ -851,6 +1158,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 70, 4, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 70, 4, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 70, 4, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -882,6 +1196,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 70, 4, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 70, 4, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -894,6 +1216,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 70, 4, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 70, 4, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 76, "character": 2}}
@@ -923,6 +1253,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 76, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 76, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 76, 2, 0]},
@@ -932,6 +1269,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 76, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 76, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 76, 2, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -963,6 +1307,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 76, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 76, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -975,6 +1327,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 76, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 76, 2, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 81, "character": 4}}
@@ -1007,6 +1367,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 86, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 86, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 86, 2, 0]},
@@ -1016,6 +1383,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 86, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 86, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 86, 2, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -1047,6 +1421,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 86, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 86, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -1059,6 +1441,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 86, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 86, 2, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 91, "character": 4}}
@@ -1088,6 +1478,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 91, 4, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 91, 4, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 91, 4, 0]},
@@ -1097,6 +1494,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 91, 4, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 91, 4, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 91, 4, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -1128,6 +1532,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 91, 4, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 91, 4, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -1140,6 +1552,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 91, 4, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 91, 4, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 96, "character": 2}}
@@ -1172,6 +1592,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 102, 4, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 102, 4, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 102, 4, 0]},
@@ -1181,6 +1608,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 102, 4, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 102, 4, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 102, 4, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -1212,6 +1646,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 102, 4, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 102, 4, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -1224,6 +1666,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 102, 4, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 102, 4, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 108, "character": 2}}
@@ -1256,6 +1706,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 112, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 112, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 112, 2, 0]},
@@ -1265,6 +1722,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 112, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 112, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 112, 2, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -1296,6 +1760,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 112, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 112, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -1308,6 +1780,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 112, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 112, 2, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 118, "character": 4}}
@@ -1337,6 +1817,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 118, 4, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 118, 4, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 118, 4, 0]},
@@ -1346,6 +1833,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 118, 4, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 118, 4, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 118, 4, 0]}],
  "isIncomplete": true}
 Resolution of open:
@@ -1377,6 +1871,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 118, 4, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 118, 4, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -1389,6 +1891,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 118, 4, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 118, 4, 0]}
 {"textDocument": {"uri": "file:///completionTactics.lean"},
  "position": {"line": 133, "character": 2}}
@@ -1418,6 +1928,13 @@ Resolution of intro:
    "kind": 14,
    "documentation": {"value": "A docstring", "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 133, 2, 0]},
+  {"label": "rewriting",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+    "kind": "markdown"},
+   "data": ["file:///completionTactics.lean", 133, 2, 0]},
   {"label": "ident",
    "kind": 14,
    "data": ["file:///completionTactics.lean", 133, 2, 0]},
@@ -1431,6 +1948,13 @@ Resolution of intro:
    "data": ["file:///completionTactics.lean", 133, 2, 0]},
   {"label": "intro",
    "kind": 14,
+   "data": ["file:///completionTactics.lean", 133, 2, 0]},
+  {"label": "unfolding",
+   "kind": 14,
+   "documentation":
+   {"value":
+    "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+    "kind": "markdown"},
    "data": ["file:///completionTactics.lean", 133, 2, 0]},
   {"label": "let",
    "kind": 14,
@@ -1466,6 +1990,14 @@ Resolution of skip:
  "kind": 14,
  "documentation": {"value": "A docstring", "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 133, 2, 0]}
+Resolution of rewriting:
+{"label": "rewriting",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`rewriting R in tacs` is like `unfolding` but activates the `@[guarded_rewrite]` rule `R`.",
+  "kind": "markdown"},
+ "data": ["file:///completionTactics.lean", 133, 2, 0]}
 Resolution of ident:
 {"label": "ident",
  "kind": 14,
@@ -1483,6 +2015,14 @@ Resolution of exact:
 Resolution of intro:
 {"label": "intro",
  "kind": 14,
+ "data": ["file:///completionTactics.lean", 133, 2, 0]}
+Resolution of unfolding:
+{"label": "unfolding",
+ "kind": 14,
+ "documentation":
+ {"value":
+  "`unfolding f, g in tacs` proves the main goal with `tacs`, with the `@[controlled]` definitions `f`\nand `g` unfolding. The proof is hoisted into an auxiliary theorem, see `Lean.Parser.Term.unfolding`.",
+  "kind": "markdown"},
  "data": ["file:///completionTactics.lean", 133, 2, 0]}
 Resolution of let:
 {"label": "let",

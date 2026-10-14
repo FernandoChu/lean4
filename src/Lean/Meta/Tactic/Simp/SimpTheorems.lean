@@ -207,6 +207,8 @@ mutual
         return false
 
   private partial def isRflTheoremCore (includeBackward : Bool) (declName : Name) : CoreM Bool := do
+    -- a theorem proved under `unfolding` is only a definitional equation within that scope
+    unless canUnfoldUnderPolicy (← getEnv) (← getOptions) declName (sync := true) do return false
     if backward.dsimp.useDefEqAttr.get (← getOptions) then
       let env ← getEnv
       return defeqAttr.hasTag env declName ||
