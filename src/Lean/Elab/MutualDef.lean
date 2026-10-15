@@ -1224,7 +1224,7 @@ where
     withSaveInfoContext do  -- save adjusted env in info tree
     -- `unfolding` scopes apply to bodies only, as in the kernel; caches must not be shared across
     -- different active sets
-    let hasUnfoldings := !(← getOptions).getActiveUnfoldings.isEmpty
+    let hasUnfoldings := !(getActiveUnfoldings (← getEnv) (← getOptions)).isEmpty
     if hasUnfoldings then Meta.resetCache
     let headers ← withoutUnfoldings <| elabHeaders views expandedDeclIds bodyPromises tacPromises
     if hasUnfoldings then Meta.resetCache

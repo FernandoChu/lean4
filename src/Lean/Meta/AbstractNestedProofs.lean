@@ -14,6 +14,20 @@ public section
 
 namespace Lean.Meta
 
+/--
+Whether `type` typechecks under an empty active set. Always true when the active set is empty.
+-/
+private def isWellTypedWithoutUnfoldings (type : Expr) : MetaM Bool := do
+  if (getActiveUnfoldings (← getEnv) (← getOptions)).isEmpty then
+    return true
+  -- the Meta caches are only valid for the active set they were filled under
+  let cache := (← getThe Meta.State).cache
+  tryFinally
+    (withoutUnfoldings do
+      resetCache
+      (check type *> pure true) <|> pure false)
+    (modifyThe Meta.State fun s => { s with cache })
+
 /-- Abstracts the given proof into an auxiliary theorem, suitably pre-processing its type. -/
 def abstractProof [Monad m] [MonadLiftT MetaM m] [MonadEnv m] [MonadOptions m] [MonadFinally m]
     (proof : Expr) (cache := true) (postprocessType : Expr → m Expr := pure) : m Expr := do
@@ -25,6 +39,11 @@ def abstractProof [Monad m] [MonadLiftT MetaM m] [MonadEnv m] [MonadOptions m] [
      If we use the cache when the proof contains `sorry`,
      then we may fail to get a "declaration contains 'sorry'" warning for the current declaration. -/
   let cache := cache && !proof.hasSorry
+  /- The kernel checks the type of the auxiliary theorem under an empty active set (see
+    `Lean.ControlledUnfolding`). If the type is only well typed under the current one, e.g. because it
+    mentions a term that only typechecks with a guarded rewrite rule, we keep the proof inline. -/
+  unless (← (isWellTypedWithoutUnfoldings type : MetaM Bool)) do
+    return proof
   /- We turn on zetaDelta-expansion to make sure we don't need to perform an expensive `check` step to
     identify which let-decls can be abstracted. If we design a more efficient test, we can avoid the eager zetaDelta expansion step.
     In a benchmark created by @selsam, The extra `check` step was a bottleneck. -/

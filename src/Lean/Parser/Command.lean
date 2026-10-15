@@ -1062,15 +1062,19 @@ Note that the error name is not relativized to the current namespace.
 checked under, unfold in the bodies (not the types) of the following declarations of the current
 section. `unfolding f in decl` does so for a single declaration. Declarations elaborated this way
 themselves only unfold where `f` and `g` do. See `Lean.ControlledUnfolding`.
+
+`scoped unfolding f` instead lets `f` unfold wherever the current namespace is open, also in other
+files, like a `scoped` attribute.
 -/
 @[builtin_command_parser] def «unfolding» := leading_parser
-  "unfolding " >> sepBy1 ident ", "
+  Term.attrKind >> "unfolding " >> sepBy1 ident ", "
 /--
 `rewriting R` activates the `@[guarded_rewrite]` rule `R` in the bodies of the following
 declarations of the current section, like `unfolding` does for controlled definitions.
+`scoped rewriting R` activates it wherever the current namespace is open.
 -/
 @[builtin_command_parser] def «rewriting» := leading_parser
-  "rewriting " >> sepBy1 ident ", "
+  Term.attrKind >> "rewriting " >> sepBy1 ident ", "
 /-- `#print unfolding f` shows the unfolding policy of `f`, see `Lean.ControlledUnfolding`. -/
 @[builtin_command_parser] def printUnfolding := leading_parser
   "#print " >> "unfolding " >> ident

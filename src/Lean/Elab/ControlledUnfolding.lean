@@ -61,8 +61,15 @@ def resolveUnfoldings (ids : Array Syntax) (rules : Bool) : CoreM (Array Name) :
   return closeUnfoldings (← getEnv) ns
 
 private def elabUnfoldingCmd (stx : Syntax) (rules : Bool) : Command.CommandElabM Unit := do
-  let ns ← Command.liftCoreM <| resolveUnfoldings stx[1].getSepArgs rules
-  Command.modifyScope fun sc => { sc with opts := sc.opts.activateUnfoldings ns }
+  let ns ← Command.liftCoreM <| resolveUnfoldings stx[2].getSepArgs rules
+  match (← liftMacroM <| toAttributeKind stx[0]) with
+  | .scoped =>
+    -- `toAttributeKind` rejects `scoped` outside of namespaces
+    let currNamespace ← getCurrNamespace
+    for n in ns do
+      modifyEnv (scopedUnfoldingExt.addScopedEntry · currNamespace n)
+  | _ =>
+    Command.modifyScope fun sc => { sc with opts := sc.opts.activateUnfoldings ns }
 
 @[builtin_command_elab Parser.Command.unfolding] def elabUnfolding : Command.CommandElab :=
   (elabUnfoldingCmd · (rules := false))

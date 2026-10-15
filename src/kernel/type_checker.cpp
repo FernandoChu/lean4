@@ -614,7 +614,21 @@ bool type_checker::match_rewrite_pattern(expr const & p, expr const & e, rewrite
     while (is_mdata(t))
         t = mdata_expr(t);
     if (!is_match(t)) {
-        t = whnf(t);
+        /* Reduce like `whnf`, but stop as soon as the head is the pattern's: unfolding further would
+           e.g. turn an application of a projection function into a primitive projection. */
+        while (true) {
+            t = whnf_core(t);
+            if (is_match(t))
+                break;
+            if (auto v = reduce_nat(t)) {
+                t = *v;
+                break;
+            } else if (auto next_t = unfold_definition(t)) {
+                t = *next_t;
+            } else {
+                break;
+            }
+        }
         if (is_nat_lit(t))
             t = nat_lit_to_constructor(t);
         if (!is_match(t))
@@ -672,10 +686,66 @@ optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule,
 }
 
 /* Rewrites `e` with the first applicable rewrite rule, if any. */
+/* For a stuck application `s.i args` of a primitive projection of a structure `S`, returns the
+   corresponding application `S.f params s args` of its projection function, if there are rewrite rules
+   about `S.f`. Both forms appear during conversion checking (e.g. in the types of later fields when
+   checking structure eta), and rules must apply to both. */
+optional<expr> type_checker::proj_as_projection_fn_app(expr const & e) {
+    buffer<expr> args;
+    expr const & fn = get_app_args(e, args);
+    if (!is_proj(fn) || !proj_idx(fn).is_small())
+        return none_expr();
+    name const & S = proj_sname(fn);
+    unsigned idx = proj_idx(fn).get_small_value();
+    optional<constant_info> S_info = env().find(S);
+    if (!S_info || !S_info->is_inductive())
+        return none_expr();
+    inductive_val S_val = S_info->to_inductive_val();
+    if (S_val.get_ncnstrs() != 1)
+        return none_expr();
+    unsigned nparams = S_val.get_nparams();
+    expr t = env().get(head(S_val.get_cnstrs())).get_type();
+    for (unsigned i = 0; i < nparams + idx; i++) {
+        if (!is_pi(t))
+            return none_expr();
+        t = binding_body(t);
+    }
+    if (!is_pi(t))
+        return none_expr();
+    name p_name = S + binding_name(t);
+    if (get_rewrite_rules(p_name).empty())
+        return none_expr();
+    /* `S.f` must be the projection function `fun params self => self.i`. */
+    optional<constant_info> p_info = env().find(p_name);
+    if (!p_info || !p_info->is_definition())
+        return none_expr();
+    expr v = p_info->get_value();
+    for (unsigned i = 0; i < nparams + 1; i++) {
+        if (!is_lambda(v))
+            return none_expr();
+        v = binding_body(v);
+    }
+    if (!is_proj(v) || proj_sname(v) != S || proj_idx(v) != proj_idx(fn) ||
+        !is_bvar(proj_expr(v)) || bvar_idx(proj_expr(v)) != 0u)
+        return none_expr();
+    expr const & s = proj_expr(fn);
+    buffer<expr> params;
+    expr const & I = get_app_args(whnf(infer_type(s)), params);
+    if (!is_constant(I) || const_name(I) != S || params.size() != nparams)
+        return none_expr();
+    expr r = mk_app(mk_app(mk_constant(p_name, const_levels(I)), params.size(), params.data()), s);
+    return some_expr(mk_app(r, args.size(), args.data()));
+}
+
 optional<expr> type_checker::reduce_rewrite_rule(expr const & e) {
     if (!m_st->m_has_rewrite_rules)
         return none_expr();
     expr const & fn = get_app_fn(e);
+    if (is_proj(fn)) {
+        if (auto e2 = proj_as_projection_fn_app(e))
+            return reduce_rewrite_rule(*e2);
+        return none_expr();
+    }
     if (!is_constant(fn))
         return none_expr();
     std::vector<rewrite_rule> const & rules = get_rewrite_rules(const_name(fn));
@@ -731,6 +801,8 @@ expr type_checker::whnf_core(expr const & e, bool cheap_rec, bool cheap_proj) {
         return whnf_fvar(e, cheap_rec, cheap_proj);
     case expr_kind::Proj: {
         if (auto m = reduce_proj(e, cheap_rec, cheap_proj))
+            r = whnf_core(*m, cheap_rec, cheap_proj);
+        else if (auto m = reduce_rewrite_rule(e))
             r = whnf_core(*m, cheap_rec, cheap_proj);
         else
             r = e;

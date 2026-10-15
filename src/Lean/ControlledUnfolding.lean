@@ -7,6 +7,7 @@ module
 
 prelude
 public import Lean.CoreM
+public import Lean.ScopedEnvExtension
 
 public section
 
@@ -32,7 +33,10 @@ A declaration may carry an `UnfoldPolicy`:
   `R` is active.
 
 The active set lives in the options under the prefix `_unfolding`, so it is propagated into
-terms, tactics, and asynchronous elaboration tasks like any other option. The kernel reads the
+terms, tactics, and asynchronous elaboration tasks like any other option. In addition,
+`scoped unfolding f` and `scoped rewriting R` add `f` and `R` to the active set wherever the current
+namespace is open, including in other files; these are kept in the scoped environment extension
+`scopedUnfoldingExt`. The kernel reads the
 policies through the same environment extension, and since a policy can only ever forbid
 unfoldings or disable guarded rules, it does not need to trust them.
 -/
@@ -84,15 +88,42 @@ def modifyUnfoldPolicy (env : Environment) (declName : Name) (f : UnfoldPolicy �
 
 private def activePrefix : Name := `_unfolding
 
-def Options.isUnfoldingActive (opts : Options) (declName : Name) : Bool :=
-  opts.contains (activePrefix ++ declName)
+/--
+Set by `withoutUnfoldings`: the names activated by open namespaces are ignored, so that types are
+checked under an empty active set even within namespaces with `scoped unfolding`.
+-/
+private def noScopedOption : Name := `_noScopedUnfoldings
 
+/--
+Names activated by `scoped unfolding` and `scoped rewriting` in the currently open namespaces.
+Entries are closed under `closeUnfoldings` when they are added.
+-/
+builtin_initialize scopedUnfoldingExt : SimpleScopedEnvExtension Name NameSet ←
+  registerSimpleScopedEnvExtension {
+    addEntry := NameSet.insert
+    initial  := {}
+  }
+
+/-- The names that the currently open namespaces add to the active set. -/
+def getScopedUnfoldings (env : Environment) (opts : Options) : NameSet :=
+  if opts.contains noScopedOption then {} else scopedUnfoldingExt.getState env
+
+/-- Whether `declName` is in the active set, from the options or from an open namespace. -/
+def isUnfoldingActive (env : Environment) (opts : Options) (declName : Name) : Bool :=
+  opts.contains (activePrefix ++ declName) || (getScopedUnfoldings env opts).contains declName
+
+/-- The names in the active set of the options, without those of open namespaces. -/
 def Options.getActiveUnfoldings (opts : Options) : Array Name := Id.run do
   let mut ns := #[]
   for (k, _) in opts do
     if activePrefix.isPrefixOf k then
       ns := ns.push (k.replacePrefix activePrefix .anonymous)
   return ns
+
+/-- The full active set: the names in the options and those of open namespaces. -/
+def getActiveUnfoldings (env : Environment) (opts : Options) : Array Name :=
+  let ns := opts.getActiveUnfoldings
+  (getScopedUnfoldings env opts).foldl (fun ns n => if ns.contains n then ns else ns.push n) ns
 
 /--
 Closes `ns` upwards: activating a `controlled` declaration also activates the names its value was
@@ -120,9 +151,11 @@ def withUnfoldings [Monad m] [MonadEnv m] [MonadWithOptions m] (ns : Array Name)
   let ns := closeUnfoldings (← getEnv) ns
   withOptions (·.activateUnfoldings ns) x
 
-/-- Runs `x` with an empty active set. -/
+/-- Runs `x` with an empty active set, also ignoring the names of open namespaces. -/
 def withoutUnfoldings [MonadWithOptions m] (x : m α) : m α :=
-  withOptions (fun opts => opts.getActiveUnfoldings.foldl (fun opts n => opts.erase (activePrefix ++ n)) opts) x
+  withOptions (fun opts =>
+    let opts := opts.getActiveUnfoldings.foldl (fun opts n => opts.erase (activePrefix ++ n)) opts
+    opts.setBool noScopedOption true) x
 
 /--
 Whether the policy of `declName` allows delta-unfolding it under the active set of `opts`. See
@@ -133,13 +166,13 @@ def canUnfoldUnderPolicy (env : Environment) (opts : Options) (declName : Name) 
   match getUnfoldPolicy? env declName sync with
   | none   => true
   | some p =>
-    if p.controlled then opts.isUnfoldingActive declName
-    else p.requires.all opts.isUnfoldingActive
+    if p.controlled then isUnfoldingActive env opts declName
+    else p.requires.all (isUnfoldingActive env opts)
 
 /-- Whether the rewrite rule `declName` may fire under the active set of `opts`. -/
 def isRewriteRuleActive (env : Environment) (opts : Options) (declName : Name) : Bool :=
   match getUnfoldPolicy? env declName with
-  | some { guardedRule := true, .. } => opts.isUnfoldingActive declName
+  | some { guardedRule := true, .. } => isUnfoldingActive env opts declName
   | _ => true
 
 /--
@@ -147,7 +180,7 @@ Records that the values of the declarations in `decl` are checked under the curr
 it is not empty. Called by `addDecl` before the declaration is sent to the kernel.
 -/
 def recordUnfoldScope (decl : Declaration) : CoreM Unit := do
-  let active := (← getOptions).getActiveUnfoldings
+  let active := getActiveUnfoldings (← getEnv) (← getOptions)
   if active.isEmpty then return
   match decl with
   | .defnDecl .. | .thmDecl .. | .opaqueDecl .. | .mutualDefnDecl .. =>

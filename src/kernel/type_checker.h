@@ -145,6 +145,7 @@ private:
     bool match_rewrite_pattern(expr const & p, expr const & e, rewrite_match & m);
     optional<expr> instantiate_rewrite_rule(rewrite_rule const & rule, expr const & e);
     optional<expr> reduce_rewrite_rule(expr const & e);
+    optional<expr> proj_as_projection_fn_app(expr const & e);
     bool can_unfold(name const & n) const;
     bool is_rewrite_rule_active(name const & n) const;
 public:

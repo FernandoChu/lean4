@@ -641,14 +641,22 @@ private def matchRewriteLevel (p u : Level) : RewriteMatchM Unit := do
   modify fun s => { s with levels := s.levels.push (p, u) }
 
 /--
+Reduces `e` like `whnf`, but stops as soon as it is an application of `c` to `n` arguments. Set to
+`whnfUntilAppOfArityImp` below, which needs `unfoldDefinition?`.
+-/
+private builtin_initialize whnfUntilAppOfArityRef : IO.Ref (Expr → Name → Nat → MetaM Expr) ←
+  IO.mkRef fun e _ _ => whnf e
+
+/--
 Returns the arguments of `e` if it is an application of `c` to `n` arguments, possibly after
-putting it in weak head normal form.
+reducing it. Reduction stops as soon as the head is `c`: reducing further would e.g. turn an
+application of a projection function into a primitive projection.
 -/
 private def matchRewriteHead? (e : Expr) (c : Name) (n : Nat) : MetaM (Option (List Level × Array Expr)) := do
   let e := e.consumeMData
   if e.isAppOfArity c n then
     return some (e.getAppFn.constLevels!, e.getAppArgs)
-  let e ← (← whnf e).toCtorIfLit
+  let e ← (← (← whnfUntilAppOfArityRef.get) e c n).toCtorIfLit
   if e.isAppOfArity c n then
     return some (e.getAppFn.constLevels!, e.getAppArgs)
   return none
@@ -1042,6 +1050,14 @@ def unfoldDefinition (e : Expr) : MetaM Expr := do
         | none   => return e
     else
       return e
+
+private def whnfUntilAppOfArityImp (e : Expr) (c : Name) (n : Nat) : MetaM Expr := do
+  let e ← whnfHeadPred e (fun e => return !e.isAppOfArity c n)
+  if e.isAppOfArity c n then return e
+  -- e.g. `Nat` literal arithmetic, which `whnfHeadPred` does not perform
+  whnf e
+
+builtin_initialize whnfUntilAppOfArityRef.set whnfUntilAppOfArityImp
 
 def whnfUntil (e : Expr) (declName : Name) : MetaM (Option Expr) := do
   let e ← whnfHeadPred e (fun e => return !e.isAppOf declName)
