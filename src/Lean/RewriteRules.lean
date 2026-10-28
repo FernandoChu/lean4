@@ -70,6 +70,8 @@ builtin_initialize rewriteRuleExt : SimplePersistentEnvExtension RewriteRule Rew
     addImportedFn := mkStateFromImportedEntries RewriteRules.add {}
     -- The kernel reads the state from `Environment.checked`, so modifications must reach it.
     asyncMode     := .sync
+    -- Type class resolution may read the rules while recording dependencies.
+    logWrites     := true
   }
 
 /-- Rewrite rules whose left-hand side is headed by `head`. -/
@@ -163,7 +165,8 @@ def mkRewriteRule (declName : Name) : MetaM RewriteRule := do
 /-- Adds `declName` as a rewrite rule, see `mkRewriteRule`. -/
 def addRewriteRule (declName : Name) : AttrM Unit := do
   let rule ← Meta.MetaM.run' <| mkRewriteRule declName
-  modifyEnv (rewriteRuleExt.addEntry · rule)
+  -- A rule changes how its head reduces, so results recorded about the head are invalidated.
+  modifyEnv (rewriteRuleExt.addEntry (log := .decl rule.head) · rule)
 
 /-- Returns `p` if `type` is `LocalRewrite p`. -/
 def Expr.localRewrite? (type : Expr) : Option Expr :=
