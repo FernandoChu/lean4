@@ -861,6 +861,24 @@ theorem Eq.substr {α : Sort u} {p : α → Prop} {a b : α} (h₁ : b = a) (h�
   rfl
 
 /--
+Marks a parameter `h : LocalRewrite (∀ xs, f ps = rhs)` of a declaration as a *local rewrite rule*,
+in the style of Leray and Winterhalter's Local Rewriting Type Theory ("Encode the Cake and Eat It
+Too", POPL 2026) and of Agda's `@rewrite` module parameters. This is an experimental feature.
+
+`LocalRewrite p` is just `p`, but when it is the type of one of the leading parameters of a
+definition, theorem, opaque or axiom (including section `variable`s), then:
+* while checking the rest of the declaration, `f ps` reduces definitionally to `rhs`, where `f` must
+  be an earlier parameter of the declaration;
+* every use of the declaration must apply it to all parameters up to its last `LocalRewrite`
+  parameter, and the equation must hold *definitionally* for the given arguments. Implicit
+  `LocalRewrite` arguments are filled in automatically when this is the case.
+
+A `LocalRewrite` hypothesis anywhere else, e.g. introduced by `fun` or `intro`, has no effect.
+Neither confluence nor termination of the local rules is checked.
+-/
+@[reducible] def LocalRewrite (p : Prop) : Prop := p
+
+/--
 `a ≠ b`, or `Ne a b` is defined as `¬ (a = b)` or `a = b → False`,
 and asserts that `a` and `b` are not equal.
 -/

@@ -889,6 +889,10 @@ def toMessageData (e : Kernel.Exception) (opts : Options) : MessageData :=
     mkCtx env lctx opts m!"(kernel) application type mismatch{indentExpr e}\nargument has type{indentExpr argType}\nbut function has type{indentExpr fnType}"
   | invalidProj env lctx e              => mkCtx env lctx opts m!"(kernel) invalid projection{indentExpr e}"
   | thmTypeIsNotProp env constName type => mkCtx env {} opts m!"(kernel) type of theorem '{.ofConstName constName true}' is not a proposition{indentExpr type}"
+  | localRewriteMismatch env lctx app lhs rhs =>
+    mkCtx env lctx opts m!"(kernel) invalid application{indentExpr app}\na local rewrite rule \
+      argument does not hold definitionally: the left-hand side{indentExpr lhs}\nis not \
+      definitionally equal to the right-hand side{indentExpr rhs}"
   | other msg                           => m!"(kernel) {msg}"
   | deterministicTimeout                => "(kernel) deterministic timeout"
   | excessiveMemory                     => "(kernel) excessive memory consumption detected"

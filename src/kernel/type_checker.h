@@ -19,8 +19,10 @@ Author: Leonardo de Moura
 #include "kernel/expr_maps.h"
 
 namespace lean {
-/* A rewrite rule `lhs ↦ rhs` derived from a declaration `∀ xs, lhs = rhs` tagged `@[rewrite_rule]`.
-   Pattern variable `i` is the loose bound variable `i` in `m_lhs` and `m_rhs`. */
+/* A rewrite rule `lhs ↦ rhs`, derived either from a declaration `∀ xs, lhs = rhs` tagged
+   `@[rewrite_rule]`, in which case `lhs` is headed by a constant, or from an interface binder
+   `h : LocalRewrite (∀ xs, lhs = rhs)`, in which case `lhs` is headed by a free variable and
+   `m_lparams` is empty. Pattern variable `i` is the loose bound variable `i` in `m_lhs` and `m_rhs`. */
 struct rewrite_rule {
     names    m_lparams;
     unsigned m_num_vars;
@@ -54,6 +56,7 @@ public:
         expr_map<expr>            m_unfold;
         bool                      m_has_rewrite_rules;
         name_hash_map<std::vector<rewrite_rule>> m_rewrite_rules;
+        name_hash_map<unsigned>   m_interface_arity;
         friend type_checker;
     public:
         state(environment const & env);
@@ -75,13 +78,19 @@ private:
     /* When `m_lparams != nullptr, the `check` method makes sure all level parameters
        are in `m_lparams`. */
     names const *             m_lparams;
+    /* Rewrite rules of the interface binders currently in `m_lctx`, see `check_interface_type`. */
+    std::vector<rewrite_rule> m_local_rewrite_rules;
+    friend class local_rewrite_scope;
 
     expr ensure_sort_core(expr e, expr const & s);
     expr ensure_pi_core(expr e, expr const & s);
     void check_level(level const & l);
     expr infer_fvar(expr const & e);
     expr infer_lit(expr const & e);
-    expr infer_constant(expr const & e, bool infer_only);
+    expr infer_constant(expr const & e, bool infer_only, bool applied = false);
+    expr infer_interface_app(expr const & e, unsigned arity);
+    expr infer_interface_redex(expr const & e, unsigned arity);
+    expr check_interface_args(expr const & e, expr f_type, buffer<expr> const & args, unsigned arity);
     expr infer_lambda(expr const & e, bool infer_only);
     expr infer_pi(expr const & e, bool infer_only);
     expr infer_app(expr const & e, bool infer_only);
@@ -138,8 +147,12 @@ private:
     std::vector<rewrite_rule> const & get_rewrite_rules(name const & head);
     void match_rewrite_level(level const & p, level const & l, rewrite_match & m);
     bool match_rewrite_pattern(expr const & p, expr const & e, rewrite_match & m);
-    optional<expr> instantiate_rewrite_rule(rewrite_rule const & rule, expr const & e);
+    optional<expr> instantiate_rewrite_rule(rewrite_rule const & rule, expr const & fn, expr const * args);
     optional<expr> reduce_rewrite_rule(expr const & e);
+    bool has_local_rewrite_rule(expr const & fvar) const;
+    void add_local_rewrite_rule(expr const & binder_type);
+    void check_local_rewrite_instance(expr const & binder_type, expr const & e);
+    unsigned get_interface_arity(name const & c);
 public:
     type_checker(environment const & env, local_ctx const & lctx, diagnostics * diag = nullptr, definition_safety ds = definition_safety::safe);
     type_checker(environment const & env, diagnostics * diag = nullptr, definition_safety ds = definition_safety::safe):type_checker(env, local_ctx(), diag, ds) {}
@@ -186,7 +199,21 @@ public:
         return whnf_core(e, true, true);
     }
     optional<expr> unfold_definition(expr const & e);
+
+    /** \brief Check the type of a declaration whose first `arity` binders form an interface (see
+        `interface_arity`), activating the local rewrite rule of each `LocalRewrite` binder for the
+        binders after it and for the result type. Return the sort of `type`. */
+    expr check_interface_type(expr const & type, unsigned arity, names const & lps);
+    /** \brief Check that `value` has type `type`, with the local rewrite rules of the interface of
+        `type` active while checking the body under its first `arity` binders. */
+    void check_interface_value(declaration const & d, expr const & type, expr const & value, unsigned arity, names const & lps);
 };
+
+/** \brief Return the number of leading binders of a declaration type `type` up to and including the
+    last one of the form `LocalRewrite P`, or `0` if there is none. These binders form the
+    declaration's interface: every occurrence of the declaration must be applied to at least that many
+    arguments, and each `LocalRewrite` argument must hold definitionally. */
+unsigned interface_arity(expr const & type);
 
 void initialize_type_checker();
 void finalize_type_checker();

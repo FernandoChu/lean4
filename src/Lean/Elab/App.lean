@@ -606,6 +606,19 @@ private def propagateExpectedType (arg : Arg) : M Unit := do
               trace[Elab.app.propagateExpectedType] "propagation pending, unification of expected type and resulting type failed"
               return false
 
+/--
+Proves an implicit argument of type `LocalRewrite (∀ xs, lhs = rhs)` by `rfl` once the other
+arguments are known. The kernel checks that `lhs ≡ rhs` regardless of the proof.
+-/
+private def mkLocalRewriteArg (argName : Name) (type eqn : Expr) : TermElabM Expr := do
+  let proof ← eqn.getForallBinderNames.foldrM (init := ← `(rfl)) fun x b =>
+    if x.isAnonymous || x.hasMacroScopes then `(fun _ => $b) else `(fun $(mkIdent x) => $b)
+  let tacticBlock ← `(by with_unfolding_all exact ($proof : $(← exprToSyntax eqn)))
+  -- As for `autoParam`s, attribute the tactic block to this application.
+  let info := (← getRef).getHeadInfo.nonCanonicalSynthetic
+  let tacticBlock := tacticBlock.raw.rewriteBottomUp (·.setInfo info)
+  mkTacticMVar type tacticBlock (.autoParam argName)
+
 /-- This method executes after all application arguments have been processed. -/
 private def finalize : M Expr := do
   withTraceNode `Elab.app.finalize (fun
@@ -744,6 +757,9 @@ mutual
   -/
   private partial def addImplicitArg (argName : Name) : M Expr := do
     let argType ← getArgExpectedType
+    if let some eqn := argType.localRewrite? then
+      addNewArg argName (← mkLocalRewriteArg argName argType eqn)
+      return ← main
     let arg ← if (← isNextOutParamOfLocalInstanceAndResult) then
       let arg ← mkFreshExprMVar argType
       /- When the result type is an output parameter, we don't want to propagate the expected type.
@@ -891,7 +907,7 @@ mutual
   private partial def processStrictImplicitArg (argName : Name) : M Expr := do
     if (← read).explicit then
       processExplicitArg argName
-    else if (← hasArgsToProcess) then
+    else if (← hasArgsToProcess) || (← getArgExpectedType).localRewrite?.isSome then
       addImplicitArg argName
     else
       finalize

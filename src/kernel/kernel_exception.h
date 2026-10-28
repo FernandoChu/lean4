@@ -141,6 +141,19 @@ public:
     expr const & get_arg_type() const { return m_arg_type; }
 };
 
+class local_rewrite_mismatch_exception : public kernel_exception_with_lctx {
+    expr m_app;
+    expr m_lhs;
+    expr m_rhs;
+public:
+    local_rewrite_mismatch_exception(environment const & env, local_ctx const & lctx, expr const & app,
+            expr const & lhs, expr const & rhs):
+        kernel_exception_with_lctx(env, lctx), m_app(app), m_lhs(lhs), m_rhs(rhs) {}
+    expr const & get_app() const { return m_app; }
+    expr const & get_lhs() const { return m_lhs; }
+    expr const & get_rhs() const { return m_rhs; }
+};
+
 class invalid_proj_exception : public kernel_exception_with_lctx {
     expr m_proj;
 public:
@@ -198,21 +211,24 @@ object * catch_kernel_exceptions(std::function<A()> const & f) {
     } catch (theorem_type_is_not_prop & ex) {
         // 11 | thmTypeIsNotProp (env : Environment) (name : Name) (type : Expr)
         return mk_cnstr(0, mk_cnstr(11, ex.env(), ex.get_decl_name(), ex.get_type())).steal();
+    } catch (local_rewrite_mismatch_exception & ex) {
+        // 12 | localRewriteMismatch (env : Environment) (lctx : LocalContext) (app : Expr) (lhs : Expr) (rhs : Expr)
+        return mk_cnstr(0, mk_cnstr(12, ex.env(), ex.get_local_ctx(), ex.get_app(), ex.get_lhs(), ex.get_rhs())).steal();
     } catch (exception & ex) {
-        // 12 | other            (msg : String)
-        return mk_cnstr(0, mk_cnstr(12, string_ref(ex.what()))).steal();
+        // 13 | other            (msg : String)
+        return mk_cnstr(0, mk_cnstr(13, string_ref(ex.what()))).steal();
     } catch (heartbeat_exception & ex) {
-        // 13 | deterministicTimeout
-        return mk_cnstr(0, box(13)).steal();
-    } catch (memory_exception & ex) {
-        // 14 | excessiveMemory
+        // 14 | deterministicTimeout
         return mk_cnstr(0, box(14)).steal();
-    } catch (stack_space_exception & ex) {
-        // 15 | deepRecursion
+    } catch (memory_exception & ex) {
+        // 15 | excessiveMemory
         return mk_cnstr(0, box(15)).steal();
-    } catch (interrupted & ex) {
-        // 16 | interrupted
+    } catch (stack_space_exception & ex) {
+        // 16 | deepRecursion
         return mk_cnstr(0, box(16)).steal();
+    } catch (interrupted & ex) {
+        // 17 | interrupted
+        return mk_cnstr(0, box(17)).steal();
     }
 }
 }

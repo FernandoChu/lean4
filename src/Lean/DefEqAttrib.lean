@@ -36,8 +36,8 @@ private def isDefEqCareful (e1 e2 : Expr) : MetaM Bool := do
 
 private def withEqLhsRhs (type : Expr) (k : Expr → Expr → MetaM α) : MetaM α := do
   withTransparency .all do -- we want to look through defs in `info.type` all the way to `Eq`
-    forallTelescopeReducing type fun _ type => do
-      let type ← whnf type
+    forallTelescopeReducing type fun xs body => withLocalRewriteRules (xs.extract 0 (interfaceArity type)) do
+      let type ← whnf body
       -- NB: The warning wording should work both for explicit uses of `@[defeq]` as well as the implicit `:= rfl`.
       let some (_, lhs, rhs) := type.eq? |
         throwError m!"Not a definitional equality: the conclusion should be an equality, but is{inlineExpr type}"

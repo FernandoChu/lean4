@@ -425,6 +425,8 @@ private def replaceBinderAnnotation (binder : TSyntax ``Parser.Term.bracketedBin
         -- declared here are used in some other declaration, but this is nonetheless the right
         -- place to display the inlay hint.
         let _ ← Term.addAutoBoundImplicits xs (tk.getTailPos? (canonicalOnly := true))
+        -- Validates local rewrite rules.
+        Meta.withLocalRewriteRules xs (pure ())
     -- Remark: if we want to produce error messages when variables shadow existing ones, here is the place to do it.
     for binder in binders do
       let varUIds ← (← getBracketedBinderIds binder) |>.mapM (withFreshMacroScope ∘ MonadQuotation.addMacroScope)

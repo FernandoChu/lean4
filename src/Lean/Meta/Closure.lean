@@ -349,11 +349,37 @@ structure MkValueTypeClosureResult where
   levelArgs   : Array Level
   exprArgs    : Array Expr
 
+/--
+Also abstracts the hypotheses of the active local rewrite rules whose head has been abstracted, so that
+the closure is checked with these rules as well (see `LocalRewrite`).
+-/
+private partial def collectLocalRewriteRules : ClosureM Unit := do
+  let rules := (← readThe Meta.Context).localRewriteRules
+  if rules.isEmpty then return
+  let lctx ← getLCtx
+  let mut progress := false
+  for rule in rules do
+    let visited := (← get).visitedExpr
+    if lctx.contains rule.fvarId && !visited.contains (mkFVar rule.fvarId) && visited.contains (mkFVar rule.head) then
+      discard <| collectExpr (mkFVar rule.fvarId)
+      progress := true
+  if progress then
+    process
+    -- `process` adds declarations in decreasing order of their position in the local context, which
+    -- late additions do not respect.
+    let lctx ← getLCtx
+    modify fun s =>
+      let sorted := (s.newLocalDecls.zip s.exprFVarArgs).qsort fun (_, a) (_, b) =>
+        (lctx.get! b.fvarId!).index < (lctx.get! a.fvarId!).index
+      { s with newLocalDecls := sorted.map (·.1), exprFVarArgs := sorted.map (·.2) }
+    collectLocalRewriteRules
+
 def mkValueTypeClosureAux (type : Expr) (value : Expr) : ClosureM (Expr × Expr) := do
   withTrackingZetaDelta do
     let type  ← collectExpr type
     let value ← collectExpr value
     process
+    collectLocalRewriteRules
     pure (type, value)
 
 private structure TopoSort where

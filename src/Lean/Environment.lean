@@ -283,6 +283,8 @@ inductive Exception where
   | appTypeMismatch  (env : Environment) (lctx : LocalContext) (app : Expr) (funType : Expr) (argType : Expr)
   | invalidProj      (env : Environment) (lctx : LocalContext) (proj : Expr)
   | thmTypeIsNotProp (env : Environment) (name : Name) (type : Expr)
+  /-- A `LocalRewrite` argument of `app` does not hold definitionally: `lhs` and `rhs` differ. -/
+  | localRewriteMismatch (env : Environment) (lctx : LocalContext) (app : Expr) (lhs : Expr) (rhs : Expr)
   | other            (msg : String)
   | deterministicTimeout
   | excessiveMemory

@@ -123,12 +123,26 @@ void environment::check_duplicated_univ_params(names ls) const {
     ::lean::check_duplicated_univ_params(*this, ls);
 }
 
-static void check_constant_val(environment const & env, constant_val const & v, type_checker & checker) {
+/* Returns the sort of the type of `v`. */
+static expr check_constant_val(environment const & env, constant_val const & v, type_checker & checker) {
     check_name(env, v.get_name());
     check_duplicated_univ_params(env, v.get_lparams());
     check_no_metavar_no_fvar(env, v.get_name(), v.get_type());
-    expr sort = checker.check(v.get_type(), v.get_lparams());
-    checker.ensure_sort(sort, v.get_type());
+    expr const & type = v.get_type();
+    unsigned arity = interface_arity(type);
+    expr sort = arity > 0 ? checker.check_interface_type(type, arity, v.get_lparams()) : checker.check(type, v.get_lparams());
+    return checker.ensure_sort(sort, type);
+}
+
+static void check_value(environment const & env, type_checker & checker, declaration const & d,
+                        expr const & type, expr const & value, names const & lparams) {
+    if (unsigned arity = interface_arity(type)) {
+        checker.check_interface_value(d, type, value, arity, lparams);
+        return;
+    }
+    expr val_type = checker.check(value, lparams);
+    if (!checker.is_def_eq(val_type, type))
+        throw definition_type_mismatch_exception(env, d, val_type);
 }
 
 static void check_constant_val(environment const & env, constant_val const & v, diagnostics * diag, definition_safety ds) {
@@ -170,9 +184,7 @@ environment environment::add_definition(declaration const & d, bool check) const
         if (check) {
             type_checker checker(new_env, diag.get(), definition_safety::unsafe);
             check_no_metavar_no_fvar(new_env, v.get_name(), v.get_value());
-            expr val_type = checker.check(v.get_value(), v.get_lparams());
-            if (!checker.is_def_eq(val_type, v.get_type()))
-                throw definition_type_mismatch_exception(new_env, d, val_type);
+            check_value(new_env, checker, d, v.get_type(), v.get_value(), v.get_lparams());
         }
         return diag.update(new_env);
     } else {
@@ -180,9 +192,7 @@ environment environment::add_definition(declaration const & d, bool check) const
             type_checker checker(*this, diag.get());
             check_constant_val(*this, v.to_constant_val(), checker);
             check_no_metavar_no_fvar(*this, v.get_name(), v.get_value());
-            expr val_type = checker.check(v.get_value(), v.get_lparams());
-            if (!checker.is_def_eq(val_type, v.get_type()))
-                throw definition_type_mismatch_exception(*this, d, val_type);
+            check_value(*this, checker, d, v.get_type(), v.get_value(), v.get_lparams());
         }
         return diag.update(add(constant_info(d)));
     }
@@ -196,13 +206,11 @@ environment environment::add_theorem(declaration const & d, bool check) const {
         sharecommon_persistent_fn share;
         expr val(share(v.get_value().raw()));
         expr type(share(v.get_type().raw()));
-        check_constant_val(*this, v.to_constant_val(), checker);
-        if (!checker.is_prop(type))
+        expr sort = check_constant_val(*this, v.to_constant_val(), checker);
+        if (!normalizes_to_zero(sort_level(sort)))
             throw theorem_type_is_not_prop(*this, v.get_name(), type);
         check_no_metavar_no_fvar(*this, v.get_name(), val);
-        expr val_type = checker.check(val, v.get_lparams());
-        if (!checker.is_def_eq(val_type, type))
-            throw definition_type_mismatch_exception(*this, d, val_type);
+        check_value(*this, checker, d, type, val, v.get_lparams());
     }
     return diag.update(add(constant_info(d)));
 }
@@ -214,9 +222,7 @@ environment environment::add_opaque(declaration const & d, bool check) const {
         type_checker checker(*this, diag.get());
         check_constant_val(*this, v.to_constant_val(), checker);
         check_no_metavar_no_fvar(*this, v.get_name(), v.get_value());
-        expr val_type = checker.check(v.get_value(), v.get_lparams());
-        if (!checker.is_def_eq(val_type, v.get_type()))
-            throw definition_type_mismatch_exception(*this, d, val_type);
+        check_value(*this, checker, d, v.get_type(), v.get_value(), v.get_lparams());
     }
     return diag.update(add(constant_info(d)));
 }
@@ -259,9 +265,7 @@ environment environment::add_mutual(declaration const & d, bool check) const {
         type_checker checker(new_env, diag.get(), safety);
         for (definition_val const & v : vs) {
             check_no_metavar_no_fvar(new_env, v.get_name(), v.get_value());
-            expr val_type = checker.check(v.get_value(), v.get_lparams());
-            if (!checker.is_def_eq(val_type, v.get_type()))
-                throw definition_type_mismatch_exception(new_env, d, val_type);
+            check_value(new_env, checker, d, v.get_type(), v.get_value(), v.get_lparams());
         }
     }
     return diag.update(new_env);

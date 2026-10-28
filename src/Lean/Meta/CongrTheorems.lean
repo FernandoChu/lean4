@@ -10,6 +10,7 @@ public import Lean.ReservedNameAction
 import Lean.Structure
 import Lean.Meta.Tactic.Subst
 import Lean.Meta.FunInfo
+import Lean.RewriteRules
 public section
 namespace Lean.Meta
 
@@ -192,8 +193,10 @@ def getCongrSimpKinds (f : Expr) (info : FunInfo) : MetaM (Array CongrArgKind) :
   -/
   let mut result := #[]
   let mask? ← getClassSubobjectMask? f
+  -- Changing an interface argument would invalidate the local rewrite rules proved for it.
+  let interfaceArity ← if let .const c _ := f then getInterfaceArity c else pure 0
   for h : i in *...info.paramInfo.size do
-    if info.resultDeps.contains i then
+    if info.resultDeps.contains i || i < interfaceArity then
       result := result.push .fixed
     else if info.paramInfo[i].isProp then
       result := result.push .cast

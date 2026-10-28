@@ -255,7 +255,7 @@ private def elabHeaders (views : Array DefView) (expandedDeclIds : Array ExpandD
         withDeprecationContextFromAttrs view.modifiers.attrs do
         applyAttributesAt declName view.modifiers.attrs .beforeElaboration
         withDeclName declName <| withAutoBoundImplicit <| withLevelNames levelNames <|
-          elabBindersEx view.binders.getArgs fun xs => do
+          elabBindersEx view.binders.getArgs fun xs => withLocalRewriteRules (xs.map (·.2)) do
             let refForElabFunType := view.value
             let mut type ← match view.type? with
               | some typeStx =>
@@ -446,9 +446,9 @@ Runs `k` with a restricted local context where only section variables from `vars
 * are directly referenced in any `headers`,
 * are included in `sc.includedVars` (via the `include` command),
 * are directly referenced in any variable included by these rules, OR
-* are instance-implicit variables that only reference section variables included by these rules AND
-  are not listed in `sc.omittedVars` (via `omit`; note that `omit` also subtracts from
-  `sc.includedVars`).
+* are instance-implicit or `LocalRewrite` variables that only reference section variables included
+  by these rules AND are not listed in `sc.omittedVars` (via `omit`; note that `omit` also subtracts
+  from `sc.includedVars`).
 
 If `check` is false, no exceptions will be produced.
 -/
@@ -484,7 +484,8 @@ where
         if sc.omittedVars.contains uid then
           continue
       let st ← get
-      if ldecl.binderInfo.isInstImplicit && (← getFVars ldecl.type).all st.fvarSet.contains then
+      if (ldecl.binderInfo.isInstImplicit || ldecl.type.localRewrite?.isSome) &&
+          (← getFVars ldecl.type).all st.fvarSet.contains then
         modify (·.add ldecl.fvarId)
   getFVars (e : Expr) : MetaM (Array FVarId) :=
     (·.2.fvarIds) <$> e.collectFVars.run {}
@@ -533,7 +534,7 @@ private def elabFunValues (headers : Array DefViewElabHeader) (vars : Array Expr
       let valStx ← declValToTerm header.value header.type
       (if header.kind.isTheorem && !deprecated.oldSectionVars.get (← getOptions) then withHeaderSecVars vars sc #[header] else fun x => x #[]) fun vars => do
       withLCtx' ((← getLCtx).modifyLocalDecls fun decl => decl.setType decl.type.cleanupAnnotations) do
-      forallBoundedTelescope header.type header.numParams (cleanupAnnotations := true) fun xs type => do
+      forallBoundedTelescope header.type header.numParams (cleanupAnnotations := true) fun xs type => withLocalRewriteRules xs do
         -- Add new info nodes for new fvars. The server will detect all fvars of a binder by the binder's source location.
         for h : i in *...header.binderIds.size do
           -- skip auto-bound prefix in `xs`
@@ -565,7 +566,7 @@ private def elabFunValues (headers : Array DefViewElabHeader) (vars : Array Expr
         if Linter.getLinterValue linter.unusedSectionVars (← Linter.getLinterOptions) && !header.type.hasSorry && !val.hasSorry then
           let unusedVars ← vars.filterMapM fun var => do
             let varDecl ← var.fvarId!.getDecl
-            return if sc.includedVars.contains varDecl.userName ||
+            return if sc.includedVars.contains varDecl.userName || varDecl.type.localRewrite?.isSome ||
                 header.type.containsFVar var.fvarId! || val.containsFVar var.fvarId! ||
                 (← vars.anyM (fun v => return (← v.fvarId!.getType).containsFVar var.fvarId!)) then
               none
@@ -600,9 +601,22 @@ private def collectUsed (headers : Array DefViewElabHeader) (values : Array Expr
     letRecToLift.type.collectFVars
     letRecToLift.val.collectFVars
 
+/--
+Adds the `LocalRewrite` variables among `vars` that only reference collected variables or their
+dependencies. Local rewrite rules are used by reduction, so they are usually not referenced directly.
+-/
+private def collectLocalRewriteVars (vars : Array Expr) : StateRefT CollectFVars.State MetaM Unit := do
+  get >>= (·.addDependencies) >>= set
+  for var in vars do
+    let decl ← getFVarLocalDecl var
+    if decl.type.localRewrite?.isSome then
+      let (_, deps) ← decl.type.collectFVars.run {}
+      if deps.fvarIds.all (← get).fvarSet.contains then
+        modify (·.add decl.fvarId)
+
 private def removeUnusedVars (vars : Array Expr) (headers : Array DefViewElabHeader) (values : Array Expr) (toLift : List LetRecToLift)
     : TermElabM (LocalContext × LocalInstances × Array Expr) := do
-  let (_, used) ← (collectUsed headers values toLift).run {}
+  let (_, used) ← (collectUsed headers values toLift *> collectLocalRewriteVars vars).run {}
   removeUnused vars used
 
 private def withUsed {α} (vars : Array Expr) (headers : Array DefViewElabHeader) (values : Array Expr) (toLift : List LetRecToLift)

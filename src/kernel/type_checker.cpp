@@ -29,6 +29,8 @@ static expr * g_dont_care    = nullptr;
 static name * g_bool_true    = nullptr;
 static name * g_eager_reduce = nullptr;
 static name * g_eq           = nullptr;
+static name * g_local_rewrite = nullptr;
+static name * g_sorry_ax      = nullptr;
 /* Upper bound (in bytes) on the numerals the kernel computes while reducing `Nat`
    literals (see `reduce_nat`). Protects the kernel from spending unbounded memory
    and time evaluating giant numerals. Configurable via the `LEAN_NAT_MAX_SIZE`
@@ -103,7 +105,7 @@ expr type_checker::infer_fvar(expr const & e) {
     }
 }
 
-expr type_checker::infer_constant(expr const & e, bool infer_only) {
+expr type_checker::infer_constant(expr const & e, bool infer_only, bool applied) {
     constant_info info = env().get(const_name(e));
     auto const & ps = info.get_lparams();
     auto const & ls = const_levels(e);
@@ -123,6 +125,10 @@ expr type_checker::infer_constant(expr const & e, bool infer_only) {
         for (level const & l : ls) {
             check_level(l);
         }
+        if (!applied && get_interface_arity(const_name(e)) > 0)
+            throw kernel_exception(env(), sstream() << "invalid occurrence of '" << const_name(e)
+                                   << "', it has local rewrite rule parameters and must be applied to at least "
+                                   << get_interface_arity(const_name(e)) << " arguments");
     }
     return instantiate_type_lparams(info, ls);
 }
@@ -170,6 +176,8 @@ expr type_checker::infer_pi(expr const & _e, bool infer_only) {
     return mk_sort(r);
 }
 
+static unsigned lambda_interface_arity(expr const & e);
+
 /* Returns `true` if `e` is of the form `eagerReduce _ _` */
 static bool is_eager_reduce(expr const & e) {
     return is_const(get_app_fn(e), *g_eager_reduce) && get_app_num_args(e) == 2;
@@ -177,6 +185,15 @@ static bool is_eager_reduce(expr const & e) {
 
 expr type_checker::infer_app(expr const & e, bool infer_only) {
     if (!infer_only) {
+        expr const & fn = get_app_fn(e);
+        if (is_constant(fn)) {
+            if (unsigned arity = get_interface_arity(const_name(fn)))
+                return infer_interface_app(e, arity);
+        } else if (is_lambda(fn)) {
+            unsigned arity = lambda_interface_arity(fn);
+            if (arity > 0 && get_app_num_args(e) >= arity)
+                return infer_interface_redex(e, arity);
+        }
         expr f_type = ensure_pi_core(infer_type_core(app_fn(e), infer_only), e);
         expr a_type = infer_type_core(app_arg(e), infer_only);
         expr d_type = binding_domain(f_type);
@@ -414,6 +431,8 @@ expr type_checker::whnf_fvar(expr const & e, bool cheap_rec, bool cheap_proj) {
             return whnf_core(*v, cheap_rec, cheap_proj);
         }
     }
+    if (optional<expr> r = reduce_rewrite_rule(e))
+        return whnf_core(*r, cheap_rec, cheap_proj);
     return e;
 }
 
@@ -547,12 +566,16 @@ bool type_checker::match_rewrite_pattern(expr const & p, expr const & e, rewrite
         return true;
     }
     expr const & p_fn = get_app_fn(p);
-    if (!is_app(p) || !is_constant(p_fn))
+    if (!is_app(p) || !(is_constant(p_fn) || is_fvar(p_fn)))
         return false;
     unsigned nargs = get_app_num_args(p);
     auto is_match = [&](expr const & t) {
         expr const & fn = get_app_fn(t);
-        return is_constant(fn) && const_name(fn) == const_name(p_fn) && get_app_num_args(t) == nargs;
+        if (get_app_num_args(t) != nargs)
+            return false;
+        if (is_fvar(p_fn))
+            return is_fvar(fn) && fvar_name(fn) == fvar_name(p_fn);
+        return is_constant(fn) && const_name(fn) == const_name(p_fn);
     };
     expr t = e;
     while (is_mdata(t))
@@ -564,12 +587,14 @@ bool type_checker::match_rewrite_pattern(expr const & p, expr const & e, rewrite
         if (!is_match(t))
             return false;
     }
-    levels const & p_ls = const_levels(p_fn);
-    levels const & t_ls = const_levels(get_app_fn(t));
-    if (length(p_ls) != length(t_ls))
-        return false;
-    for (auto p_it = p_ls.begin(), t_it = t_ls.begin(); p_it != p_ls.end(); ++p_it, ++t_it)
-        match_rewrite_level(*p_it, *t_it, m);
+    if (is_constant(p_fn)) {
+        levels const & p_ls = const_levels(p_fn);
+        levels const & t_ls = const_levels(get_app_fn(t));
+        if (length(p_ls) != length(t_ls))
+            return false;
+        for (auto p_it = p_ls.begin(), t_it = t_ls.begin(); p_it != p_ls.end(); ++p_it, ++t_it)
+            match_rewrite_level(*p_it, *t_it, m);
+    }
     buffer<expr> p_args, t_args;
     get_app_args(p, p_args);
     get_app_args(t, t_args);
@@ -580,12 +605,28 @@ bool type_checker::match_rewrite_pattern(expr const & p, expr const & e, rewrite
     return true;
 }
 
-/* Instantiates `rule` if its left-hand side matches `e`, which must have exactly `rule.m_num_args` arguments. */
-optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule, expr const & e) {
+/* Instantiates `rule` if its left-hand side matches `fn args`, where `fn` is the head of the left-hand
+   side (up to universe levels) and `args` has at least `rule.m_num_args` elements. The head is not matched
+   as a pattern: a left-hand side without pattern variables would be compared up to defeq with `fn args`,
+   whose reduction tries the rule again. */
+optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule, expr const & fn, expr const * args) {
     rewrite_match m;
     m.m_subst.resize(rule.m_num_vars);
-    if (!match_rewrite_pattern(rule.m_lhs, e, m))
-        return none_expr();
+    expr const & p_fn = get_app_fn(rule.m_lhs);
+    if (is_constant(p_fn)) {
+        levels const & p_ls = const_levels(p_fn);
+        levels const & ls   = const_levels(fn);
+        if (length(p_ls) != length(ls))
+            return none_expr();
+        for (auto p_it = p_ls.begin(), it = ls.begin(); p_it != p_ls.end(); ++p_it, ++it)
+            match_rewrite_level(*p_it, *it, m);
+    }
+    buffer<expr> p_args;
+    get_app_args(rule.m_lhs, p_args);
+    for (unsigned i = 0; i < p_args.size(); i++) {
+        if (!match_rewrite_pattern(p_args[i], args[i], m))
+            return none_expr();
+    }
     buffer<level> ls;
     for (name const & p : rule.m_lparams) {
         auto it = std::find(m.m_lparams.begin(), m.m_lparams.end(), p);
@@ -617,24 +658,281 @@ optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule,
 
 /* Rewrites `e` with the first applicable rewrite rule, if any. */
 optional<expr> type_checker::reduce_rewrite_rule(expr const & e) {
-    if (!m_st->m_has_rewrite_rules)
-        return none_expr();
     expr const & fn = get_app_fn(e);
-    if (!is_constant(fn))
+    std::vector<rewrite_rule> const * rules;
+    if (is_fvar(fn)) {
+        rules = &m_local_rewrite_rules;
+    } else if (is_constant(fn) && m_st->m_has_rewrite_rules) {
+        rules = &get_rewrite_rules(const_name(fn));
+    } else {
         return none_expr();
-    std::vector<rewrite_rule> const & rules = get_rewrite_rules(const_name(fn));
-    if (rules.empty())
+    }
+    if (rules->empty())
         return none_expr();
     buffer<expr> args;
     get_app_args(e, args);
-    for (rewrite_rule const & rule : rules) {
+    for (rewrite_rule const & rule : *rules) {
         if (args.size() < rule.m_num_args)
             continue;
-        if (optional<expr> r = instantiate_rewrite_rule(rule, mk_app(fn, rule.m_num_args, args.data()))) {
+        expr const & head = get_app_fn(rule.m_lhs);
+        if (is_fvar(fn) && fvar_name(head) != fvar_name(fn))
+            continue;
+        if (optional<expr> r = instantiate_rewrite_rule(rule, fn, args.data())) {
             return some_expr(mk_app(*r, args.size() - rule.m_num_args, args.data() + rule.m_num_args));
         }
     }
     return none_expr();
+}
+
+bool type_checker::has_local_rewrite_rule(expr const & fvar) const {
+    for (rewrite_rule const & rule : m_local_rewrite_rules) {
+        if (fvar_name(get_app_fn(rule.m_lhs)) == fvar_name(fvar))
+            return true;
+    }
+    return false;
+}
+
+static expr consume_mdata(expr e) {
+    while (is_mdata(e))
+        e = mdata_expr(e);
+    return e;
+}
+
+/* Returns `P` if `binder_type` is `LocalRewrite P`. */
+static optional<expr> is_local_rewrite(expr const & binder_type) {
+    expr t = consume_mdata(binder_type);
+    if (is_app(t) && is_constant(app_fn(t), *g_local_rewrite))
+        return some_expr(app_arg(t));
+    return none_expr();
+}
+
+unsigned interface_arity(expr const & type) {
+    unsigned arity = 0;
+    unsigned i = 0;
+    expr t = consume_mdata(type);
+    while (is_pi(t)) {
+        i++;
+        if (is_local_rewrite(binding_domain(t)))
+            arity = i;
+        t = consume_mdata(binding_body(t));
+    }
+    return arity;
+}
+
+/* The interface arity (see `interface_arity`) of the leading binders of a lambda. */
+static unsigned lambda_interface_arity(expr const & e) {
+    unsigned arity = 0;
+    unsigned i = 0;
+    expr t = consume_mdata(e);
+    while (is_lambda(t)) {
+        i++;
+        if (is_local_rewrite(binding_domain(t)))
+            arity = i;
+        t = consume_mdata(binding_body(t));
+    }
+    return arity;
+}
+
+unsigned type_checker::get_interface_arity(name const & c) {
+    auto it = m_st->m_interface_arity.find(c);
+    if (it != m_st->m_interface_arity.end())
+        return it->second;
+    unsigned arity = 0;
+    if (optional<constant_info> info = env().find(c)) {
+        if (info->is_definition() || info->is_theorem() || info->is_opaque() || info->is_axiom())
+            arity = interface_arity(info->get_type());
+    }
+    m_st->m_interface_arity.insert(mk_pair(c, arity));
+    return arity;
+}
+
+/* Activates the rule of an interface binder of type `binder_type`, whose free variables are in `m_lctx`.
+   Binders that do not have the form `LocalRewrite (∀ xs, f ps = rhs)` with `f` a free variable are
+   ignored, which is sound since activating a rule only ever makes more terms well-typed. */
+void type_checker::add_local_rewrite_rule(expr const & binder_type) {
+    optional<expr> eqn = is_local_rewrite(binder_type);
+    if (!eqn)
+        return;
+    unsigned num_vars = 0;
+    expr t = consume_mdata(*eqn);
+    while (is_pi(t)) {
+        t = consume_mdata(binding_body(t));
+        num_vars++;
+    }
+    buffer<expr> eq_args;
+    expr const & eq = get_app_args(t, eq_args);
+    if (!is_constant(eq) || const_name(eq) != *g_eq || eq_args.size() != 3)
+        return;
+    expr lhs = consume_mdata(eq_args[1]);
+    if (!is_fvar(get_app_fn(lhs)))
+        return;
+    m_local_rewrite_rules.push_back(rewrite_rule{names(), num_vars, get_app_num_args(lhs), lhs, eq_args[2]});
+    /* Terms over the interface's free variables may have been reduced or compared before the rule was active. */
+    m_st->m_whnf_core.clear();
+    m_st->m_whnf.clear();
+    m_st->m_failure.clear();
+}
+
+/* Checks that the argument `LocalRewrite (∀ xs, lhs = rhs)` of the interface application `e` holds
+   definitionally, i.e. that `lhs ≡ rhs` for fresh `xs`. */
+void type_checker::check_local_rewrite_instance(expr const & binder_type, expr const & e) {
+    optional<expr> eqn = is_local_rewrite(binder_type);
+    if (!eqn)
+        return;
+    flet<local_ctx> save_lctx(m_lctx, m_lctx);
+    buffer<expr> fvars;
+    expr t = consume_mdata(*eqn);
+    while (is_pi(t)) {
+        expr d = instantiate_rev(binding_domain(t), fvars.size(), fvars.data());
+        fvars.push_back(m_lctx.mk_local_decl(m_st->m_ngen, binding_name(t), d, binding_info(t)));
+        t = consume_mdata(binding_body(t));
+    }
+    t = instantiate_rev(t, fvars.size(), fvars.data());
+    buffer<expr> eq_args;
+    expr const & eq = get_app_args(t, eq_args);
+    if (!is_constant(eq) || const_name(eq) != *g_eq || eq_args.size() != 3)
+        return;
+    if (!is_def_eq(eq_args[1], eq_args[2]))
+        throw local_rewrite_mismatch_exception(env(), m_lctx, e, eq_args[1], eq_args[2]);
+}
+
+/* Restores the local rewrite rules on exit. */
+class local_rewrite_scope {
+    type_checker & m_tc;
+    size_t         m_size;
+public:
+    local_rewrite_scope(type_checker & tc):m_tc(tc), m_size(tc.m_local_rewrite_rules.size()) {}
+    ~local_rewrite_scope() { m_tc.m_local_rewrite_rules.resize(m_size); }
+};
+
+/* Checks the application `e` of a constant whose first `arity` parameters form an interface. The whole
+   spine is processed at once because partial applications of the constant are rejected. */
+expr type_checker::infer_interface_app(expr const & e, unsigned arity) {
+    buffer<expr> args;
+    expr const & fn = get_app_args(e, args);
+    if (args.size() < arity)
+        throw kernel_exception(env(), sstream() << "invalid occurrence of '" << const_name(fn)
+                               << "', it has local rewrite rule parameters and must be applied to at least "
+                               << arity << " arguments");
+    return check_interface_args(e, infer_constant(fn, false, true), args, arity);
+}
+
+/* Checks a redex `(fun xs => b) as` where the first `arity` binders `xs` form an interface and are all
+   applied, as if `fun xs => b` were a declaration with an interface: `b` is checked with the local
+   rewrite rules of `xs` active, and the arguments must satisfy them. Metaprograms produce such redexes
+   when they unfold a declaration with an interface without beta-reducing it. */
+expr type_checker::infer_interface_redex(expr const & e, unsigned arity) {
+    buffer<expr> args;
+    expr const & fn = get_app_args(e, args);
+    expr fn_type;
+    {
+        flet<local_ctx> save_lctx(m_lctx, m_lctx);
+        local_rewrite_scope scope(*this);
+        buffer<expr> fvars;
+        expr b = fn;
+        for (unsigned i = 0; i < arity; i++) {
+            b = consume_mdata(b);
+            expr d = instantiate_rev(binding_domain(b), fvars.size(), fvars.data());
+            ensure_sort_core(infer_type_core(d, false), d);
+            fvars.push_back(m_lctx.mk_local_decl(m_st->m_ngen, binding_name(b), d, binding_info(b)));
+            add_local_rewrite_rule(d);
+            b = binding_body(b);
+        }
+        b = instantiate_rev(b, fvars.size(), fvars.data());
+        fn_type = m_lctx.mk_pi(fvars, infer_type_core(b, false));
+    }
+    return check_interface_args(e, fn_type, args, arity);
+}
+
+/* Checks the arguments `args` of the application `e` against the type `f_type` of its head, whose first
+   `arity` binders form an interface. */
+expr type_checker::check_interface_args(expr const & e, expr f_type, buffer<expr> const & args, unsigned arity) {
+    expr const & fn = get_app_fn(e);
+    for (unsigned i = 0; i < args.size(); i++) {
+        f_type = ensure_pi_core(f_type, e);
+        expr a_type = infer_type_core(args[i], false);
+        expr d_type = binding_domain(f_type);
+        expr partial = mk_app(fn, i + 1, args.data());
+        if (is_eager_reduce(args[i])) {
+            flet<bool> scope(m_eager_reduce, true);
+            if (!is_def_eq(a_type, d_type))
+                throw app_type_mismatch_exception(env(), m_lctx, partial, f_type, a_type);
+        } else if (!is_def_eq(a_type, d_type)) {
+            throw app_type_mismatch_exception(env(), m_lctx, partial, f_type, a_type);
+        }
+        /* An argument that is `sorry` is not checked: the elaborator has already reported an error,
+           and the declaration depends on the inconsistent axiom `sorryAx` anyway. */
+        if (i < arity && !is_constant(get_app_fn(args[i]), *g_sorry_ax))
+            check_local_rewrite_instance(d_type, e);
+        f_type = instantiate(binding_body(f_type), args[i]);
+    }
+    return f_type;
+}
+
+expr type_checker::check_interface_type(expr const & type, unsigned arity, names const & lps) {
+    flet<names const *> updt(m_lparams, &lps);
+    flet<local_ctx> save_lctx(m_lctx, m_lctx);
+    local_rewrite_scope scope(*this);
+    buffer<expr> fvars;
+    buffer<level> us;
+    expr e = type;
+    for (unsigned i = 0; i < arity; i++) {
+        e = consume_mdata(e);
+        lean_assert(is_pi(e));
+        expr d = instantiate_rev(binding_domain(e), fvars.size(), fvars.data());
+        us.push_back(sort_level(ensure_sort_core(infer_type_core(d, false), d)));
+        fvars.push_back(m_lctx.mk_local_decl(m_st->m_ngen, binding_name(e), d, binding_info(e)));
+        add_local_rewrite_rule(d);
+        e = binding_body(e);
+    }
+    e = instantiate_rev(e, fvars.size(), fvars.data());
+    level r = sort_level(ensure_sort_core(infer_type_core(e, false), e));
+    unsigned i = fvars.size();
+    while (i > 0) {
+        --i;
+        r = mk_imax(us[i], r);
+    }
+    return mk_sort(r);
+}
+
+void type_checker::check_interface_value(declaration const & d, expr const & type, expr const & value, unsigned arity, names const & lps) {
+    {
+        flet<names const *> updt(m_lparams, &lps);
+        flet<local_ctx> save_lctx(m_lctx, m_lctx);
+        local_rewrite_scope scope(*this);
+        buffer<expr> fvars;
+        expr t = type;
+        expr v = value;
+        unsigned i = 0;
+        for (; i < arity; i++) {
+            t = consume_mdata(t);
+            v = consume_mdata(v);
+            if (!is_lambda(v))
+                break;
+            expr t_d = instantiate_rev(binding_domain(t), fvars.size(), fvars.data());
+            expr v_d = instantiate_rev(binding_domain(v), fvars.size(), fvars.data());
+            ensure_sort_core(infer_type_core(v_d, false), v_d);
+            if (!is_def_eq(v_d, t_d))
+                throw kernel_exception(env(), "declaration has local rewrite rule parameters, but the type of a "
+                                       "binder of its value does not match the corresponding binder of its type");
+            fvars.push_back(m_lctx.mk_local_decl(m_st->m_ngen, binding_name(t), t_d, binding_info(t)));
+            add_local_rewrite_rule(t_d);
+            t = binding_body(t);
+            v = binding_body(v);
+        }
+        if (i == arity) {
+            t = instantiate_rev(t, fvars.size(), fvars.data());
+            v = instantiate_rev(v, fvars.size(), fvars.data());
+            expr v_type = infer_type_core(v, false);
+            if (!is_def_eq(v_type, t))
+                throw definition_type_mismatch_exception(env(), d, m_lctx.mk_pi(fvars, v_type));
+            return;
+        }
+    }
+    /* The value does not bind the whole interface, so it is checked without the local rewrite rules. */
+    expr v_type = check(value, lps);
+    if (!is_def_eq(v_type, type))
+        throw definition_type_mismatch_exception(env(), d, v_type);
 }
 
 expr type_checker::whnf_core(expr const & e, bool cheap_rec, bool cheap_proj) {
@@ -650,7 +948,7 @@ expr type_checker::whnf_core(expr const & e, bool cheap_rec, bool cheap_proj) {
     case expr_kind::MData:
         return whnf_core(mdata_expr(e), cheap_rec, cheap_proj);
     case expr_kind::FVar:
-        if (is_let_fvar(m_lctx, e))
+        if (is_let_fvar(m_lctx, e) || has_local_rewrite_rule(e))
             break;
         else
             return e;
@@ -886,7 +1184,7 @@ expr type_checker::whnf(expr const & e) {
     case expr_kind::MData:
         return whnf(mdata_expr(e));
     case expr_kind::FVar:
-        if (is_let_fvar(m_lctx, e))
+        if (is_let_fvar(m_lctx, e) || has_local_rewrite_rule(e))
             break;
         else
             return e;
@@ -1425,6 +1723,10 @@ void initialize_type_checker() {
     g_eager_reduce = new name{"eagerReduce"};
     g_eq           = new name{"Eq"};
     mark_persistent(g_eq->raw());
+    g_local_rewrite = new name{"LocalRewrite"};
+    mark_persistent(g_local_rewrite->raw());
+    g_sorry_ax      = new name{"sorryAx"};
+    mark_persistent(g_sorry_ax->raw());
     g_dont_care    = new_persistent_expr_const("dontcare");
     g_nat_zero     = new_persistent_expr_const({"Nat", "zero"});
     g_nat_succ     = new_persistent_expr_const({"Nat", "succ"});
@@ -1448,6 +1750,8 @@ void initialize_type_checker() {
 
 void finalize_type_checker() {
     delete g_eq;
+    delete g_local_rewrite;
+    delete g_sorry_ax;
     delete g_kernel_fresh;
     delete g_bool_true;
     delete g_eager_reduce;

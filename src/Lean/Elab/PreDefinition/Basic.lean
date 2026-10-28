@@ -123,7 +123,7 @@ def abstractNestedProofs (preDef : PreDefinition) (cache := true) : MetaM PreDef
   else do
     let value ←
       withDeclNameForAuxNaming preDef.declName do
-        Meta.abstractNestedProofs (cache := cache) preDef.value
+        mapInterfaceBody preDef.type preDef.value (Meta.abstractNestedProofs (cache := cache))
     pure { preDef with value := value }
 
 /-- Auxiliary method for (temporarily) adding pre definition as an axiom -/

@@ -89,6 +89,9 @@ def synthesizeArgs (thmId : Origin) (bis : Array BinderInfo) (xs : Array Expr) :
       if (← isClass? type).isSome then
         if (← synthesizeInstance x type) then
           continue
+      if let some proof ← mkLocalRewriteProof? type then
+        x.mvarId!.assign proof
+        continue
       if (← isProp type) then
         unless (← discharge?' thmId x type) do
           return false

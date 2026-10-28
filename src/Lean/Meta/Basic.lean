@@ -633,6 +633,20 @@ register_builtin_option maxSynthPendingDepth : Nat := {
 }
 
 /--
+A rewrite rule `lhs ↦ rhs` of a parameter `fvarId : LocalRewrite (∀ xs, lhs = rhs)` of the declaration
+being elaborated, where `lhs` is headed by the local variable `head`. See `LocalRewrite`.
+-/
+structure LocalRewriteRule where
+  fvarId  : FVarId
+  head    : FVarId
+  /-- Number of pattern variables `xs`. -/
+  numVars : Nat
+  /-- Left-hand side `head ps`. Pattern variable `i` is the loose `.bvar i`. -/
+  lhs     : Expr
+  rhs     : Expr
+  deriving Inhabited
+
+/--
   Contextual information for the `MetaM` monad.
 -/
 structure Context where
@@ -696,6 +710,11 @@ structure Context where
   metavariables
   -/
   cacheInferType : Bool := true
+  /--
+  Local rewrite rules of the declaration being elaborated, see `withLocalRewriteRules`. A rule is only
+  used while its hypothesis `fvarId` is in the local context.
+  -/
+  localRewriteRules : Array LocalRewriteRule := #[]
 deriving Inhabited
 
 def Context.config (c : Context) : Config := c.keyedConfig.config

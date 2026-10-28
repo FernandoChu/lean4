@@ -188,6 +188,17 @@ def getParamRevDeps (value : Expr) : MetaM (Array (Array Nat)) := do
       revDeps := revDeps.push deps
     pure revDeps
 
+/--
+Whether `arg` is passed for the parameter `param` unchanged. Proofs are compared syntactically, except
+for proofs of local rewrite rules (see `LocalRewrite`), which elaborated recursive calls prove anew.
+-/
+private def isFixedArg (param arg : Expr) : MetaM Bool := do
+  let type ← inferType param
+  if type.localRewrite?.isSome then
+    withReducible <| isDefEq type (← inferType arg)
+  else
+    withoutProofIrrelevance <| withReducible <| isDefEq param arg
+
 def getFixedParamsInfo (preDefs : Array PreDefinition) : MetaM FixedParams.Info := do
   let revDeps ← preDefs.mapM (getParamRevDeps ·.value)
   let arities := revDeps.map (·.size)
@@ -214,7 +225,7 @@ def getFixedParamsInfo (preDefs : Array PreDefinition) : MetaM FixedParams.Info 
               -- We have seen this before (or it is a self-call), so only check that one param
               if let some paramIdx := (← ref.get).getCallerParam? calleeIdx argIdx callerIdx then
                 let param := params[paramIdx]!
-                unless (← withoutProofIrrelevance <| withReducible <| isDefEq param arg) do
+                unless (← isFixedArg param arg) do
                   trace[Elab.definition.fixedParams] "getFixedParams: notFixed {calleeIdx} {argIdx}:\nIn {e}\n{param} =/= {arg}"
                   ref.modify (Info.setVarying calleeIdx argIdx)
               else
@@ -223,7 +234,7 @@ def getFixedParamsInfo (preDefs : Array PreDefinition) : MetaM FixedParams.Info 
               for h : paramIdx in *...params.size do
                 if (← ref.get).mayBeFixed callerIdx paramIdx then
                   let param := params[paramIdx]
-                  if (← withoutProofIrrelevance <| withReducible <| isDefEq param arg) then
+                  if (← isFixedArg param arg) then
                     ref.modify (Info.setCallerParam calleeIdx argIdx callerIdx paramIdx)
                     any := true
               unless any do

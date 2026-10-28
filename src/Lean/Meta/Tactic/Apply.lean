@@ -9,6 +9,7 @@ prelude
 public import Lean.Meta.Tactic.Util
 public import Lean.PrettyPrinter
 import Lean.Meta.AppBuilder
+import Lean.RewriteRules
 import Init.Omega
 
 public section
@@ -129,6 +130,11 @@ one inferred. The `congr` tactic sets this flag to false.
 def postprocessAppMVars (tacticName : Name) (mvarId : MVarId) (newMVars : Array Expr) (binderInfos : Array BinderInfo)
     (synthAssignedInstances := true) (allowSynthFailures := false) : MetaM Unit := do
   synthAppInstances tacticName mvarId newMVars binderInfos synthAssignedInstances allowSynthFailures
+  -- Arguments `LocalRewrite _` of a declaration with an interface are proved by reflexivity.
+  for mvar in newMVars do
+    unless ← mvar.mvarId!.isAssigned do
+      if let some proof ← mkLocalRewriteProof? (← inferType mvar) then
+        mvar.mvarId!.assign proof
   -- TODO: default and auto params
 
 private def dependsOnOthers (mvar : Expr) (otherMVars : Array Expr) : MetaM Bool :=

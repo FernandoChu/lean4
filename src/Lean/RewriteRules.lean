@@ -32,6 +32,16 @@ axiom is only as trustworthy as that axiom.
 
 The kernel does not trust the stored rule: it only reads the names of the tagged declarations and
 re-derives each rule from the declaration's type (see `type_checker::reduce_rewrite_rule`).
+
+# Local rewrite rules
+
+A parameter `h : LocalRewrite (∀ xs, lhs = rhs)` of a declaration (see `LocalRewrite`) is a rewrite
+rule local to that declaration, following Leray and Winterhalter's Local Rewriting Type Theory
+("Encode the Cake and Eat It Too", POPL 2026). The left-hand side must be headed by an earlier
+parameter rather than by a constant, and the patterns may also use earlier parameters as rigid heads.
+The elaborator activates these rules with `Meta.withLocalRewriteRules`. The kernel activates them
+while checking the declaration (`type_checker::check_interface_type`) and checks at every use of the
+declaration that they hold definitionally (`type_checker::infer_interface_app`).
 -/
 
 namespace Lean
@@ -102,8 +112,10 @@ private partial def checkPattern (p : Expr) : StateM PatternInfo (Option Expr) :
     modify fun s => { s with vars := s.vars.set! i true }
     return none
   | p@(.app ..) =>
-    let .const _ us := p.getAppFn | return some p
-    modify fun s => { s with lvls := collectLevelParams us s.lvls }
+    match p.getAppFn with
+    | .const _ us => modify fun s => { s with lvls := collectLevelParams us s.lvls }
+    | .fvar _     => pure ()
+    | _           => return some p
     for arg in p.getAppArgs do
       if let some bad ← checkPattern arg then return some bad
     return none
@@ -152,6 +164,109 @@ def mkRewriteRule (declName : Name) : MetaM RewriteRule := do
 def addRewriteRule (declName : Name) : AttrM Unit := do
   let rule ← Meta.MetaM.run' <| mkRewriteRule declName
   modifyEnv (rewriteRuleExt.addEntry · rule)
+
+/-- Returns `p` if `type` is `LocalRewrite p`. -/
+def Expr.localRewrite? (type : Expr) : Option Expr :=
+  let type := type.consumeMData
+  if type.isAppOfArity ``LocalRewrite 1 then some type.appArg! else none
+
+/--
+The number of leading binders of a declaration type `type` up to and including the last one of the
+form `LocalRewrite _`, i.e. the number of arguments every use of the declaration must be applied to.
+This mirrors the kernel's `interface_arity`.
+-/
+def interfaceArity (type : Expr) : Nat :=
+  go type 0 0
+where
+  go : Expr → Nat → Nat → Nat
+    | .forallE _ d b _, i, k => go b (i + 1) (if d.localRewrite?.isSome then i + 1 else k)
+    | .mdata _ e,       i, k => go e i k
+    | _,                _, k => k
+
+/-- The interface arity (see `interfaceArity`) of the constant `c`. -/
+def getInterfaceArity (c : Name) : CoreM Nat := do
+  let some info := (← getEnv).findAsync? c | return 0
+  unless info.kind matches .defn | .thm | .opaque | .axiom do return 0
+  return interfaceArity info.sig.get.type
+
+namespace Meta
+
+/--
+Decodes the local rewrite rule of a hypothesis `h : LocalRewrite (∀ xs, lhs = rhs)`, or returns
+`none` if the type of `h` does not have the form `LocalRewrite _`. See `LocalRewrite`.
+-/
+def mkLocalRewriteRule? (h : Expr) : MetaM (Option LocalRewriteRule) := do
+  let fvarId := h.fvarId!
+  let some eqn := (← instantiateMVars (← fvarId.getType)).localRewrite? | return none
+  let (xs, body) := stripForalls eqn
+  let numVars := xs.size
+  let throwAt {α} (msg : MessageData) (e : Expr) : MetaM α :=
+    forallBoundedTelescope eqn (some numVars) fun fvars _ =>
+      throwError "invalid local rewrite rule `{h}`: {msg}{indentExpr (e.instantiateRev fvars)}"
+  let some (_, lhs, rhs) := body.consumeMData.eq? |
+    throwAt "the conclusion must be an equality" body
+  let lhs := lhs.consumeMData
+  let .fvar head := lhs.getAppFn |
+    throwAt "the left-hand side must be an application of an earlier parameter" lhs
+  if (← head.getDecl).isLet then
+    throwAt m!"the head `{mkFVar head}` of the left-hand side must not be a let-variable" lhs
+  let (bad?, s) := (lhs.getAppArgs.findSomeM? checkPattern).run { vars := .replicate numVars false }
+  if let some bad := bad? then
+    throwAt "pattern variables may only occur as arguments of constant or parameter applications, \
+      but the left-hand side contains the pattern" bad
+  for i in [:numVars] do
+    unless s.vars[i]! do
+      throwAt m!"variable `{xs[numVars - 1 - i]!}` does not occur in a pattern position of the \
+        left-hand side" lhs
+  return some { fvarId, head, numVars, lhs, rhs }
+
+/--
+Runs `k` with the local rewrite rules of the hypotheses among `fvars` whose type has the form
+`LocalRewrite _` active, see `LocalRewrite`. This should only be used for the parameters of the
+declaration being elaborated, as the kernel only uses the rules of these parameters.
+-/
+def withLocalRewriteRules [MonadControlT MetaM n] [Monad n] (fvars : Array Expr) (k : n α) : n α :=
+  mapMetaM (fun k => do
+    let rules ← fvars.filterMapM mkLocalRewriteRule?
+    if rules.isEmpty then
+      k
+    else
+      -- Reductions and failed unifications may have been cached before the rules were active.
+      withFreshCache <| withReader (fun ctx => { ctx with localRewriteRules := ctx.localRewriteRules ++ rules }) k) k
+
+/--
+Runs `k` on the body of the declaration value `value` under its first `interfaceArity type` binders,
+with the local rewrite rules of these binders active, and abstracts the binders again. This is for
+post-processing a declaration value outside of the context in which it was elaborated.
+-/
+def mapInterfaceBody (type value : Expr) (k : Expr → MetaM Expr) : MetaM Expr := do
+  let arity := interfaceArity type
+  if arity == 0 then
+    k value
+  else
+    lambdaBoundedTelescope value arity fun xs body =>
+      withLocalRewriteRules xs do mkLambdaFVars xs (← k body)
+
+/--
+Proves `LocalRewrite (∀ xs, lhs = rhs)` by reflexivity if `lhs` and `rhs` are definitionally equal,
+which is what the kernel checks for an argument of this type of a declaration with an interface.
+-/
+def mkLocalRewriteProof? (type : Expr) : MetaM (Option Expr) := do
+  let some eqn := (← instantiateMVars type).localRewrite? | return none
+  forallTelescope eqn fun xs body => do
+    let body := body.consumeMData
+    let some (α, lhs, rhs) := body.eq? | return none
+    unless (← withTransparency .all <| isDefEq lhs rhs) do return none
+    return some (← mkLambdaFVars xs (mkApp2 (mkConst ``Eq.refl body.getAppFn.constLevels!) α lhs))
+
+/-- The local rewrite rules whose left-hand side is headed by `head`. -/
+def getLocalRewriteRules (head : FVarId) : MetaM (Array LocalRewriteRule) := do
+  let rules := (← read).localRewriteRules
+  if rules.isEmpty then return #[]
+  let lctx ← getLCtx
+  return rules.filter fun rule => rule.head == head && lctx.contains rule.fvarId
+
+end Meta
 
 builtin_initialize
   registerBuiltinAttribute {
