@@ -2484,6 +2484,23 @@ private def whnfCoreAtDefEq (e : Expr) : MetaM Expr := do
   else
     whnfCore e
 
+/--
+When `t` and `s` are applications of the same rigid head, and that head heads rewrite rules, try to
+unify their arguments before rewriting either side, as lazy delta reduction does for definitions.
+Rewriting first can lose solutions and equalities: `transp ?f ?x =?= transp (f ≫ g) x` becomes
+`transp ?f ?x =?= transp g (transp f x)`, and two applications with definitionally equal arguments
+can be rewritten by different rules.
+-/
+private def isDefEqRewriteHead (t s : Expr) : MetaM LBool := do
+  unless t.isApp && t.getAppNumArgs == s.getAppNumArgs do return .undef
+  let hasRules ← match t.getAppFn, s.getAppFn with
+    | .const f _, .const g _ => pure (f == g && !(getRewriteRules (← getEnv) f).isEmpty)
+    | .fvar x,    .fvar y    => pure (x == y && !(← getLocalRewriteRules x).isEmpty)
+    | _,          _          => pure false
+  unless hasRules do return .undef
+  if (← isDefEqApp t s) then return .true
+  return .undef
+
 set_option compiler.ignoreBorrowAnnotation true in
 @[export lean_is_expr_def_eq]
 partial def isExprDefEqAuxImpl (t : Expr) (s : Expr) : MetaM Bool := withIncRecDepth do
@@ -2496,6 +2513,7 @@ partial def isExprDefEqAuxImpl (t : Expr) (s : Expr) : MetaM Bool := withIncRecD
   checkSystem "isDefEq"
   whenUndefDo (isDefEqQuick t s) do
   whenUndefDo (isDefEqProofIrrel t s) do
+  whenUndefDo (isDefEqRewriteHead t s) do
   /-
     We also reduce projections here to prevent expensive defeq checks when unifying TC operations.
     When unifying e.g. `(@Field.toNeg α inst1).1 =?= (@Field.toNeg α inst2).1`,

@@ -56,6 +56,7 @@ static expr * g_nat_shiftRight = nullptr;
 
 extern "C" uint8 lean_kernel_has_rewrite_rules(object * env);
 extern "C" object * lean_kernel_get_rewrite_rules(object * env, object * head);
+extern "C" object * lean_kernel_get_rewrite_rule_heads(object * env);
 
 type_checker::state::state(environment const & env):
     m_env(env), m_ngen(*g_kernel_fresh),
@@ -528,15 +529,105 @@ std::vector<rewrite_rule> const & type_checker::get_rewrite_rules(name const & h
     return m_st->m_rewrite_rules.insert(mk_pair(head, rules)).first->second;
 }
 
+/* If `fn` is a projection function of field `idx` of the structure `sname`, i.e. a definition
+   `fun ps (self : sname.{us} ps) => self.idx` where `us` are the universe parameters of `fn`,
+   return its number of parameters `ps`. The binder of `self` is checked so that `fn params s` is
+   well-typed whenever the primitive projection `s.idx` is, see `proj_as_proj_fn`. */
+static optional<unsigned> get_proj_fn_nparams(environment const & env, name const & fn,
+                                              name const & sname, unsigned idx) {
+    optional<constant_info> info = env.find(fn);
+    if (!info || !info->is_definition())
+        return optional<unsigned>();
+    expr v = info->get_value();
+    expr self_type;
+    unsigned n = 0;
+    while (is_lambda(v)) {
+        self_type = binding_domain(v);
+        v = binding_body(v);
+        n++;
+    }
+    if (n == 0 || !is_proj(v) || proj_sname(v) != sname || !proj_idx(v).is_small() ||
+        proj_idx(v).get_small_value() != idx)
+        return optional<unsigned>();
+    expr const & self = proj_expr(v);
+    if (!is_bvar(self) || !bvar_idx(self).is_small() || bvar_idx(self).get_small_value() != 0)
+        return optional<unsigned>();
+    while (is_mdata(self_type))
+        self_type = mdata_expr(self_type);
+    buffer<expr> params;
+    expr const & I = get_app_args(self_type, params);
+    if (!is_constant(I) || const_name(I) != sname || params.size() != n - 1)
+        return optional<unsigned>();
+    for (unsigned i = 0; i < params.size(); i++) {
+        expr const & p = params[i];
+        if (!is_bvar(p) || !bvar_idx(p).is_small() || bvar_idx(p).get_small_value() != n - 2 - i)
+            return optional<unsigned>();
+    }
+    levels const & ls = const_levels(I);
+    names const & lps = info->get_lparams();
+    if (length(ls) != length(lps))
+        return optional<unsigned>();
+    auto lp_it = lps.begin();
+    for (level const & l : ls) {
+        if (!is_param(l) || param_id(l) != *lp_it)
+            return optional<unsigned>();
+        ++lp_it;
+    }
+    return optional<unsigned>(n - 1);
+}
+
+/* Returns the projection function among the rule heads that projects field `idx` of `sname`. */
+optional<name> type_checker::get_proj_rule_head(name const & sname, unsigned idx) {
+    if (!m_st->m_proj_rule_heads_init) {
+        m_st->m_proj_rule_heads_init = true;
+        names heads(lean_kernel_get_rewrite_rule_heads(env().to_obj_arg()));
+        for (name const & head : heads) {
+            optional<constant_info> info = env().find(head);
+            if (!info || !info->is_definition())
+                continue;
+            expr v = info->get_value();
+            while (is_lambda(v))
+                v = binding_body(v);
+            if (is_proj(v) && proj_idx(v).is_small() &&
+                get_proj_fn_nparams(env(), head, proj_sname(v), proj_idx(v).get_small_value()))
+                m_st->m_proj_rule_heads.insert(
+                    mk_pair(name(proj_sname(v), proj_idx(v).get_small_value()), head));
+        }
+    }
+    auto it = m_st->m_proj_rule_heads.find(name(sname, idx));
+    if (it == m_st->m_proj_rule_heads.end())
+        return optional<name>();
+    return optional<name>(it->second);
+}
+
+/* Rewrites `s.idx a_1 ... a_n`, a primitive projection, as `fn params s a_1 ... a_n` if `fn` is the
+   projection function for that field. The two are definitionally equal by unfolding `fn`. */
+optional<expr> type_checker::proj_as_proj_fn(expr const & e, name const & fn) {
+    buffer<expr> args;
+    expr const & f = get_app_args(e, args);
+    if (!is_proj(f) || !proj_idx(f).is_small())
+        return none_expr();
+    optional<unsigned> nparams = get_proj_fn_nparams(env(), fn, proj_sname(f), proj_idx(f).get_small_value());
+    if (!nparams)
+        return none_expr();
+    expr const & s = proj_expr(f);
+    buffer<expr> params;
+    expr s_type = whnf(infer_type(s));
+    expr const & I = get_app_args(s_type, params);
+    if (!is_constant(I) || const_name(I) != proj_sname(f) || params.size() != *nparams)
+        return none_expr();
+    expr r = mk_app(mk_app(mk_constant(fn, const_levels(I)), params.size(), params.data()), s);
+    return some_expr(mk_app(r, args.size(), args.data()));
+}
+
 struct rewrite_match {
     buffer<optional<expr>>       m_subst;
     buffer<name>                 m_lparams;
     buffer<level>                m_lvalues;
-    /* Checked once all universe parameters are bound: closed subpatterns and non-parameter levels
-       (with the rule's universe parameters still to be instantiated), and repeated variables. */
-    buffer<expr_pair>            m_closed;
+    /* Checked once all variables and universe parameters are bound: subpatterns that are not matched
+       structurally and non-parameter levels (both still to be instantiated). */
+    buffer<expr_pair>            m_deferred;
     buffer<std::pair<level, level>> m_levels;
-    buffer<expr_pair>            m_nonlinear;
 };
 
 void type_checker::match_rewrite_level(level const & p, level const & l, rewrite_match & m) {
@@ -548,9 +639,120 @@ void type_checker::match_rewrite_level(level const & p, level const & l, rewrite
     }
 }
 
+/* Returns whether `t` is an application of the rigid head `fn` (a constant or a free variable) to
+   `nargs` arguments. */
+static bool is_rewrite_head_app(expr const & fn, expr const & t, unsigned nargs) {
+    expr const & t_fn = get_app_fn(t);
+    if (get_app_num_args(t) != nargs)
+        return false;
+    if (is_fvar(fn))
+        return is_fvar(t_fn) && fvar_name(t_fn) == fvar_name(fn);
+    return is_constant(t_fn) && const_name(t_fn) == const_name(fn);
+}
+
+/* Returns `e` as an application of the rigid head `p_fn` to `nargs` arguments, unfolding it one step
+   at a time and checking the head after each step: unfolding all the way to weak head normal form can
+   turn an application of a projection function such as `CategoryStruct.id` into a primitive
+   projection. Rewrite rules are likewise applied one at a time at the head first: `whnf_core` applies
+   them until none applies, and can rewrite past the expected head. */
+optional<expr> type_checker::find_rewrite_head(expr const & p_fn, unsigned nargs, expr t) {
+    auto is_match = [&](expr const & t) { return is_rewrite_head_app(p_fn, t, nargs); };
+    while (is_mdata(t))
+        t = mdata_expr(t);
+    for (unsigned i = 0; i < 64 && !is_match(t); i++) {
+        optional<expr> r = reduce_rewrite_rule(t);
+        if (!r)
+            break;
+        t = *r;
+        while (is_mdata(t))
+            t = mdata_expr(t);
+    }
+    while (!is_match(t)) {
+        t = whnf_core(t);
+        if (is_match(t))
+            break;
+        if (is_constant(p_fn) && is_proj(get_app_fn(t))) {
+            if (optional<expr> c = proj_as_proj_fn(t, const_name(p_fn))) {
+                if (is_match(*c)) {
+                    t = *c;
+                    break;
+                }
+            }
+        }
+        if (optional<expr> r = reduce_nat(t)) {
+            t = *r;
+        } else if (optional<expr> u = unfold_definition(t)) {
+            t = *u;
+        } else {
+            if (is_nat_lit(t))
+                t = nat_lit_to_constructor(t);
+            if (!is_match(t))
+                return none_expr();
+        }
+    }
+    return some_expr(t);
+}
+
+/* Matches the arguments `p_args` of a pattern headed by `p_fn` against the arguments `t_args` of the
+   target. Implicit arguments that are bare variables are matched first, then explicit arguments, then
+   the other implicit arguments. Implicit arguments are determined by the explicit ones up to defeq,
+   and the same instance can be reached along different paths. So an implicit argument whose variables
+   are already bound is checked up to defeq, since matching it structurally could bind them
+   differently. Otherwise it is matched structurally, falling back to defeq. */
+bool type_checker::match_rewrite_args(expr const & p_fn, buffer<expr> const & p_args, expr const * t_args,
+                                      rewrite_match & m) {
+    unsigned nargs = p_args.size();
+    expr p_fn_type;
+    if (is_constant(p_fn)) {
+        p_fn_type = env().get(const_name(p_fn)).get_type();
+    } else if (optional<local_decl> decl = m_lctx.find_local_decl(p_fn)) {
+        p_fn_type = decl->get_type();
+    }
+    buffer<bool> implicit;
+    for (unsigned i = 0; i < nargs; i++) {
+        while (is_mdata(p_fn_type))
+            p_fn_type = mdata_expr(p_fn_type);
+        implicit.push_back(is_pi(p_fn_type) && !is_explicit(binding_info(p_fn_type)));
+        if (is_pi(p_fn_type))
+            p_fn_type = binding_body(p_fn_type);
+    }
+    auto is_var = [](expr p) {
+        while (is_mdata(p))
+            p = mdata_expr(p);
+        return is_bvar(p);
+    };
+    for (unsigned i = 0; i < nargs; i++) {
+        if (implicit[i] && is_var(p_args[i]) && !match_rewrite_pattern(p_args[i], t_args[i], m))
+            return false;
+    }
+    for (unsigned i = 0; i < nargs; i++) {
+        if (!implicit[i] && !match_rewrite_pattern(p_args[i], t_args[i], m))
+            return false;
+    }
+    for (unsigned i = 0; i < nargs; i++) {
+        if (!implicit[i] || is_var(p_args[i]))
+            continue;
+        bool bound = true;
+        for (unsigned j = 0; j < get_loose_bvar_range(p_args[i]); j++) {
+            if (has_loose_bvar(p_args[i], j) && (j >= m.m_subst.size() || !m.m_subst[j]))
+                bound = false;
+        }
+        if (bound) {
+            m.m_deferred.push_back(mk_pair(p_args[i], t_args[i]));
+            continue;
+        }
+        rewrite_match saved = m;
+        if (!match_rewrite_pattern(p_args[i], t_args[i], m)) {
+            m = saved;
+            m.m_deferred.push_back(mk_pair(p_args[i], t_args[i]));
+        }
+    }
+    return true;
+}
+
 bool type_checker::match_rewrite_pattern(expr const & p, expr const & e, rewrite_match & m) {
     if (!has_loose_bvars(p)) {
-        m.m_closed.push_back(mk_pair(p, e));
+        m.m_deferred.push_back(mk_pair(p, e));
         return true;
     }
     if (is_mdata(p))
@@ -559,56 +761,64 @@ bool type_checker::match_rewrite_pattern(expr const & p, expr const & e, rewrite
         unsigned idx = bvar_idx(p).get_small_value();
         if (idx >= m.m_subst.size())
             return false;
+        /* A repeated variable is checked right away, so that a mismatch makes the enclosing
+           application unfold further. */
         if (m.m_subst[idx])
-            m.m_nonlinear.push_back(mk_pair(*m.m_subst[idx], e));
-        else
-            m.m_subst[idx] = e;
+            return is_def_eq(*m.m_subst[idx], e);
+        m.m_subst[idx] = e;
         return true;
     }
     expr const & p_fn = get_app_fn(p);
-    if (!is_app(p) || !(is_constant(p_fn) || is_fvar(p_fn)))
-        return false;
-    unsigned nargs = get_app_num_args(p);
-    auto is_match = [&](expr const & t) {
-        expr const & fn = get_app_fn(t);
-        if (get_app_num_args(t) != nargs)
-            return false;
-        if (is_fvar(p_fn))
-            return is_fvar(fn) && fvar_name(fn) == fvar_name(p_fn);
-        return is_constant(fn) && const_name(fn) == const_name(p_fn);
-    };
-    expr t = e;
-    while (is_mdata(t))
-        t = mdata_expr(t);
-    if (!is_match(t)) {
-        t = whnf(t);
-        if (is_nat_lit(t))
-            t = nat_lit_to_constructor(t);
-        if (!is_match(t))
-            return false;
+    if (!is_app(p) || !(is_constant(p_fn) || is_fvar(p_fn))) {
+        m.m_deferred.push_back(mk_pair(p, e));
+        return true;
     }
-    if (is_constant(p_fn)) {
-        levels const & p_ls = const_levels(p_fn);
-        levels const & t_ls = const_levels(get_app_fn(t));
-        if (length(p_ls) != length(t_ls))
-            return false;
-        for (auto p_it = p_ls.begin(), t_it = t_ls.begin(); p_it != p_ls.end(); ++p_it, ++t_it)
-            match_rewrite_level(*p_it, *t_it, m);
-    }
-    buffer<expr> p_args, t_args;
+    buffer<expr> p_args;
     get_app_args(p, p_args);
-    get_app_args(t, t_args);
-    for (unsigned i = 0; i < nargs; i++) {
-        if (!match_rewrite_pattern(p_args[i], t_args[i], m))
+    /* The target may reach the head more than once while unfolding, e.g. `D.id x` for a displayed
+       category `D` defined in terms of `B` before `B.id x`. If the arguments do not match, unfold
+       further and try again. */
+    expr t = e;
+    optional<expr> prev;
+    for (unsigned step = 0; step < 64; step++) {
+        optional<expr> h = find_rewrite_head(p_fn, p_args.size(), t);
+        /* Stop when unfolding makes no progress, e.g. a projection function that unfolds to a
+           primitive projection, which `find_rewrite_head` turns back into the same application. */
+        if (!h || (prev && *h == *prev))
             return false;
+        prev = h;
+        rewrite_match saved = m;
+        bool ok = true;
+        if (is_constant(p_fn)) {
+            levels const & p_ls = const_levels(p_fn);
+            levels const & t_ls = const_levels(get_app_fn(*h));
+            if (length(p_ls) != length(t_ls)) {
+                ok = false;
+            } else {
+                for (auto p_it = p_ls.begin(), t_it = t_ls.begin(); p_it != p_ls.end(); ++p_it, ++t_it)
+                    match_rewrite_level(*p_it, *t_it, m);
+            }
+        }
+        if (ok) {
+            buffer<expr> t_args;
+            get_app_args(*h, t_args);
+            if (match_rewrite_args(p_fn, p_args, t_args.data(), m))
+                return true;
+        }
+        m = saved;
+        optional<expr> u = unfold_definition(*h);
+        if (!u)
+            return false;
+        t = *u;
     }
-    return true;
+    return false;
 }
 
 /* Instantiates `rule` if its left-hand side matches `fn args`, where `fn` is the head of the left-hand
    side (up to universe levels) and `args` has at least `rule.m_num_args` elements. The head is not matched
    as a pattern: a left-hand side without pattern variables would be compared up to defeq with `fn args`,
-   whose reduction tries the rule again. */
+   whose reduction tries the rule again. For the same reason the target is not unfolded further when its
+   arguments do not match. */
 optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule, expr const & fn, expr const * args) {
     rewrite_match m;
     m.m_subst.resize(rule.m_num_vars);
@@ -623,10 +833,8 @@ optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule,
     }
     buffer<expr> p_args;
     get_app_args(rule.m_lhs, p_args);
-    for (unsigned i = 0; i < p_args.size(); i++) {
-        if (!match_rewrite_pattern(p_args[i], args[i], m))
-            return none_expr();
-    }
+    if (!match_rewrite_args(p_fn, p_args, args, m))
+        return none_expr();
     buffer<level> ls;
     for (name const & p : rule.m_lparams) {
         auto it = std::find(m.m_lparams.begin(), m.m_lparams.end(), p);
@@ -645,20 +853,28 @@ optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule,
         if (!is_equivalent(instantiate(p.first, rule.m_lparams, lvls), p.second))
             return none_expr();
     }
-    for (expr_pair const & p : m.m_closed) {
-        if (!is_def_eq(instantiate_lparams(p.first, rule.m_lparams, lvls), p.second))
-            return none_expr();
-    }
-    for (expr_pair const & p : m.m_nonlinear) {
-        if (!is_def_eq(p.first, p.second))
+    for (expr_pair const & p : m.m_deferred) {
+        expr p_inst = instantiate(instantiate_lparams(p.first, rule.m_lparams, lvls), subst.size(), subst.data());
+        if (!is_def_eq(p_inst, p.second))
             return none_expr();
     }
     return some_expr(instantiate(instantiate_lparams(rule.m_rhs, rule.m_lparams, lvls), subst.size(), subst.data()));
 }
 
-/* Rewrites `e` with the first applicable rewrite rule, if any. */
+/* Rewrites `e` with the first applicable rewrite rule, if any. Later rules take precedence, since they
+   are usually more specific: `lean_kernel_get_rewrite_rules` lists the rules on a constant in reverse
+   order, and local rules are tried from the last one. */
 optional<expr> type_checker::reduce_rewrite_rule(expr const & e) {
     expr const & fn = get_app_fn(e);
+    if (is_proj(fn)) {
+        /* Rules on a projection function also apply to the corresponding primitive projection. */
+        if (!m_st->m_has_rewrite_rules || !proj_idx(fn).is_small())
+            return none_expr();
+        if (optional<name> head = get_proj_rule_head(proj_sname(fn), proj_idx(fn).get_small_value()))
+            if (optional<expr> e_fn = proj_as_proj_fn(e, *head))
+                return reduce_rewrite_rule(*e_fn);
+        return none_expr();
+    }
     std::vector<rewrite_rule> const * rules;
     if (is_fvar(fn)) {
         rules = &m_local_rewrite_rules;
@@ -671,11 +887,13 @@ optional<expr> type_checker::reduce_rewrite_rule(expr const & e) {
         return none_expr();
     buffer<expr> args;
     get_app_args(e, args);
-    for (rewrite_rule const & rule : *rules) {
+    bool local = is_fvar(fn);
+    for (size_t k = 0; k < rules->size(); k++) {
+        rewrite_rule const & rule = local ? (*rules)[rules->size() - 1 - k] : (*rules)[k];
         if (args.size() < rule.m_num_args)
             continue;
         expr const & head = get_app_fn(rule.m_lhs);
-        if (is_fvar(fn) && fvar_name(head) != fvar_name(fn))
+        if (local && fvar_name(head) != fvar_name(fn))
             continue;
         if (optional<expr> r = instantiate_rewrite_rule(rule, fn, args.data())) {
             return some_expr(mk_app(*r, args.size() - rule.m_num_args, args.data() + rule.m_num_args));
@@ -973,6 +1191,8 @@ expr type_checker::whnf_core(expr const & e, bool cheap_rec, bool cheap_proj) {
         return whnf_fvar(e, cheap_rec, cheap_proj);
     case expr_kind::Proj: {
         if (auto m = reduce_proj(e, cheap_rec, cheap_proj))
+            r = whnf_core(*m, cheap_rec, cheap_proj);
+        else if (auto m = reduce_rewrite_rule(e))
             r = whnf_core(*m, cheap_rec, cheap_proj);
         else
             r = e;
@@ -1614,6 +1834,24 @@ bool type_checker::is_def_eq_core(expr const & t, expr const & s) {
     if ((!has_fvar(t) || m_eager_reduce) && is_constant(s, *g_bool_true)) {
         if (is_constant(whnf(t), *g_bool_true)) {
             return true;
+        }
+    }
+
+    /* When `t` and `s` are applications of the same rigid head, and that head heads rewrite rules,
+       compare their arguments before rewriting either side, as lazy delta reduction does for
+       definitions: the two sides could otherwise be rewritten by different rules. */
+    if (is_app(t) && is_app(s) && get_app_num_args(t) == get_app_num_args(s)) {
+        expr const & t_fn = get_app_fn(t);
+        expr const & s_fn = get_app_fn(s);
+        bool has_rules = false;
+        if (is_constant(t_fn) && is_constant(s_fn) && const_name(t_fn) == const_name(s_fn))
+            has_rules = m_st->m_has_rewrite_rules && !get_rewrite_rules(const_name(t_fn)).empty();
+        else if (is_fvar(t_fn) && is_fvar(s_fn) && fvar_name(t_fn) == fvar_name(s_fn))
+            has_rules = has_local_rewrite_rule(t_fn);
+        if (has_rules && !failed_before(t, s)) {
+            if (is_def_eq_app(t, s))
+                return true;
+            cache_failure(t, s);
         }
     }
 

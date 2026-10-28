@@ -56,6 +56,10 @@ public:
         expr_map<expr>            m_unfold;
         bool                      m_has_rewrite_rules;
         name_hash_map<std::vector<rewrite_rule>> m_rewrite_rules;
+        /* Rule heads that are projection functions, keyed by `name(structure, field index)`.
+           Computed on first use. */
+        bool                      m_proj_rule_heads_init = false;
+        name_hash_map<name>       m_proj_rule_heads;
         name_hash_map<unsigned>   m_interface_arity;
         friend type_checker;
     public:
@@ -147,6 +151,10 @@ private:
     std::vector<rewrite_rule> const & get_rewrite_rules(name const & head);
     void match_rewrite_level(level const & p, level const & l, rewrite_match & m);
     bool match_rewrite_pattern(expr const & p, expr const & e, rewrite_match & m);
+    bool match_rewrite_args(expr const & p_fn, buffer<expr> const & p_args, expr const * t_args, rewrite_match & m);
+    optional<expr> find_rewrite_head(expr const & p_fn, unsigned nargs, expr t);
+    optional<name> get_proj_rule_head(name const & sname, unsigned idx);
+    optional<expr> proj_as_proj_fn(expr const & e, name const & fn);
     optional<expr> instantiate_rewrite_rule(rewrite_rule const & rule, expr const & fn, expr const * args);
     optional<expr> reduce_rewrite_rule(expr const & e);
     bool has_local_rewrite_rule(expr const & fvar) const;

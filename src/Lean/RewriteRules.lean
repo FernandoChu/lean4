@@ -21,11 +21,30 @@ reduction rule used by both `Meta.whnfCore` and the kernel's `whnf_core`, in the
 The left-hand side must be an application `f p₁ ... pₙ` (`n ≥ 1`) of a constant `f` that is neither
 an inductive type nor a constructor. Each pattern `pᵢ` is either
 * a variable `x ∈ xs` (repeated occurrences are checked for definitional equality),
-* an application `c q₁ ... qₘ` of a constant to patterns, matched against the weak head normal form
-  of the target, or
-* a term without variables from `xs`, matched up to definitional equality.
+* an application `c q₁ ... qₘ` of a constant to patterns, matched against the target after
+  rewriting and unfolding it one step at a time until `c` is at its head (and further, if the
+  arguments do not match), or
+* any other term, matched up to definitional equality once the variables it mentions are bound.
 
-Every variable in `xs` and every universe parameter of `h` must be determined by the left-hand side.
+Implicit and instance arguments of constant applications are determined by the explicit arguments,
+but only up to definitional equality: an index `f ≫ g` in the type of an argument may be reached as
+`𝟙 x` in the target, and the same instance can be reached along different paths. So the implicit
+arguments that are variables are bound first, then the explicit arguments are matched, and the other
+implicit arguments are checked up to definitional equality once their variables are bound, or
+matched structurally, falling back to definitional equality, if not. A variable that occurs only in
+such an argument is left unbound when that argument does not match structurally, and then the rule
+does not fire.
+
+Every variable in `xs` and every universe parameter of `h` must occur in a pattern position of
+the left-hand side, i.e. one of the first two forms.
+
+Rules whose head is a projection function, such as `Hom.app`, also fire on the corresponding
+primitive projection `η.1`. When several rules apply to a term, the one declared last is used: later
+rules are usually more specific, and a general rule such as associativity could otherwise fire first
+after unfolding a subterm with another rule. When definitional equality compares two applications of
+the same rule head, it compares their arguments before rewriting either side, as lazy delta
+reduction does for definitions.
+
 This is an experimental feature. Neither confluence nor termination of the resulting rewrite system
 is checked, so rules can make type checking loop or break subject reduction. A rule justified by an
 axiom is only as trustworthy as that axiom.
@@ -74,21 +93,31 @@ builtin_initialize rewriteRuleExt : SimplePersistentEnvExtension RewriteRule Rew
     logWrites     := true
   }
 
-/-- Rewrite rules whose left-hand side is headed by `head`. -/
+/-- Rewrite rules whose left-hand side is headed by `head`, in the order in which they were declared. -/
 def getRewriteRules (env : Environment) (head : Name) : Array RewriteRule :=
   -- Rules are only added on the main branch, so the local state is up to date and does not block.
   (rewriteRuleExt.getState env (asyncMode := .local)).find? head |>.getD #[]
+
+/-- Whether any rewrite rules have been declared. -/
+def hasRewriteRules (env : Environment) : Bool :=
+  !Std.TreeMap.isEmpty (rewriteRuleExt.getState env (asyncMode := .local))
 
 @[export lean_kernel_has_rewrite_rules]
 private def kernelHasRewriteRules (env : Kernel.Environment) : Bool :=
   !Std.TreeMap.isEmpty (env.getPersistentExtState rewriteRuleExt).2
 
-/-- Names of the declarations justifying the rewrite rules headed by `head`. -/
+/-- Names of the declarations justifying the rewrite rules headed by `head`, in the order in which
+they are tried: later rules first. -/
 @[export lean_kernel_get_rewrite_rules]
 private def kernelGetRewriteRules (env : Kernel.Environment) (head : Name) : List Name :=
   match (env.getPersistentExtState rewriteRuleExt).2.find? head with
-  | some rs => rs.toList.map (·.declName)
+  | some rs => rs.toList.reverse.map (·.declName)
   | none    => []
+
+/-- Heads of all rewrite rules. -/
+@[export lean_kernel_get_rewrite_rule_heads]
+private def kernelGetRewriteRuleHeads (env : Kernel.Environment) : List Name :=
+  (Std.TreeMap.toList (env.getPersistentExtState rewriteRuleExt).2).map (·.1)
 
 private partial def stripForalls (e : Expr) (xs : Array Name := #[]) : Array Name × Expr :=
   match e with
@@ -105,23 +134,19 @@ private def collectLevelParams (us : List Level) (s : NameSet) : NameSet :=
     | .param n => s.insert n
     | _        => s
 
-/-- Records the variables and universe parameters bound by pattern `p`, returning the first
-unsupported subpattern, if any. -/
-private partial def checkPattern (p : Expr) : StateM PatternInfo (Option Expr) := do
-  if !p.hasLooseBVars then return none
+/-- Records the variables and universe parameters bound by the pattern positions of `p`. Other
+subterms are matched up to definitional equality and bind nothing. -/
+private partial def checkPattern (p : Expr) : StateM PatternInfo Unit := do
+  if !p.hasLooseBVars then return
   match p.consumeMData with
-  | .bvar i =>
-    modify fun s => { s with vars := s.vars.set! i true }
-    return none
+  | .bvar i => modify fun s => { s with vars := s.vars.set! i true }
   | p@(.app ..) =>
     match p.getAppFn with
     | .const _ us => modify fun s => { s with lvls := collectLevelParams us s.lvls }
     | .fvar _     => pure ()
-    | _           => return some p
-    for arg in p.getAppArgs do
-      if let some bad ← checkPattern arg then return some bad
-    return none
-  | p => return some p
+    | _           => return
+    p.getAppArgs.forM checkPattern
+  | _ => return
 
 /-- Validates that `declName : ∀ xs, lhs = rhs` is a well-formed rewrite rule and decodes it. -/
 def mkRewriteRule (declName : Name) : MetaM RewriteRule := do
@@ -149,10 +174,7 @@ def mkRewriteRule (declName : Name) : MetaM RewriteRule := do
   | some .induct => throwAt m!"the head `{head}` is an inductive type" lhs
   | _ => pure ()
   let init : PatternInfo := { vars := .replicate numVars false, lvls := collectLevelParams us {} }
-  let (bad?, s) := (lhsArgs.findSomeM? checkPattern).run init
-  if let some bad := bad? then
-    throwAt "pattern variables may only occur as arguments of constant applications, \
-      but the left-hand side contains the pattern" bad
+  let ((), s) := (lhsArgs.forM checkPattern).run init
   for i in [:numVars] do
     unless s.vars[i]! do
       throwAt m!"variable `{xs[numVars - 1 - i]!}` does not occur in a pattern position of the \
@@ -213,10 +235,7 @@ def mkLocalRewriteRule? (h : Expr) : MetaM (Option LocalRewriteRule) := do
     throwAt "the left-hand side must be an application of an earlier parameter" lhs
   if (← head.getDecl).isLet then
     throwAt m!"the head `{mkFVar head}` of the left-hand side must not be a let-variable" lhs
-  let (bad?, s) := (lhs.getAppArgs.findSomeM? checkPattern).run { vars := .replicate numVars false }
-  if let some bad := bad? then
-    throwAt "pattern variables may only occur as arguments of constant or parameter applications, \
-      but the left-hand side contains the pattern" bad
+  let ((), s) := (lhs.getAppArgs.forM checkPattern).run { vars := .replicate numVars false }
   for i in [:numVars] do
     unless s.vars[i]! do
       throwAt m!"variable `{xs[numVars - 1 - i]!}` does not occur in a pattern position of the \

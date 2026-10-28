@@ -384,12 +384,11 @@ end
 private structure RewriteMatchState where
   subst      : Array (Option Expr)
   lsubst     : NameMap Level := {}
-  /-- Closed subpatterns and their targets, checked up to defeq once all universes are bound. -/
-  closed     : Array (Expr × Expr) := #[]
+  /-- Subpatterns that are not matched structurally and their targets, checked up to defeq once all
+  variables and universes are bound. -/
+  deferred   : Array (Expr × Expr) := #[]
   /-- Levels that are not a bare universe parameter, checked once all universes are bound. -/
   levels     : Array (Level × Level) := #[]
-  /-- Repeated occurrences of pattern variables, checked up to defeq. -/
-  nonlinear  : Array (Expr × Expr) := #[]
 
 private abbrev RewriteMatchM := StateT RewriteMatchState MetaM
 
@@ -406,55 +405,187 @@ private def matchRewriteLevels (ps us : List Level) : RewriteMatchM Bool := do
     matchRewriteLevel p u
   return true
 
+/-- Returns whether `e` is headed by the rigid head `fn` (a constant or a local variable). -/
+private def isRewriteHead (fn e : Expr) : Bool :=
+  match fn, e.getAppFn with
+  | .const c _, .const d _ => c == d
+  | .fvar x,    .fvar y    => x == y
+  | _,          _          => false
+
 /-- Returns whether `e` is an application of the rigid head `fn` (a constant or a local variable) to
 `n` arguments. -/
 private def isRewriteHeadApp (fn e : Expr) (n : Nat) : Bool :=
-  e.getAppNumArgs == n && match fn, e.getAppFn with
-    | .const c _, .const d _ => c == d
-    | .fvar x,    .fvar y    => x == y
-    | _,          _          => false
+  e.getAppNumArgs == n && isRewriteHead fn e
+
+/-- The projection function for the primitive projection at the head of `e`, if any. -/
+private def projFnOfHead? (e : Expr) : MetaM (Option Name) := do
+  let .proj sName i _ := e.getAppFn | return none
+  let env ← getEnv
+  let some info := getStructureInfo? env sName | return none
+  let some field := info.fieldNames[i]? | return none
+  return getProjFnForField? env sName field
 
 /--
-Returns `e` if it is an application of `fn` to `n` arguments, possibly after putting it in weak head
-normal form.
+Rewrites `s.i a₁ ... aₙ`, a primitive projection, as `fn params s a₁ ... aₙ`, where `fn` is the
+projection function for that field. The two are definitionally equal by unfolding `fn`.
+-/
+private def projAsProjFn? (e : Expr) (fn : Name) : MetaM (Option Expr) := do
+  let .proj sName _ s := e.getAppFn | return none
+  let sType ← whnf (← inferType s)
+  let .const sName' lvls := sType.getAppFn | return none
+  unless sName' == sName do return none
+  return mkAppN (mkAppN (mkConst fn lvls) sType.getAppArgs) (#[s] ++ e.getAppArgs)
+
+set_option compiler.ignoreBorrowAnnotation true in
+/-- Forward reference to `whnfUntilRewriteHead?`. -/
+@[extern "lean_whnf_until_rewrite_head"]
+private opaque whnfUntilRewriteHeadFwd : Expr → Expr → MetaM (Option Expr)
+
+set_option compiler.ignoreBorrowAnnotation true in
+/-- Forward reference to `unfoldDefinition?`. -/
+@[extern "lean_unfold_definition_for_rewrite"]
+private opaque unfoldDefinitionFwd : Expr → MetaM (Option Expr)
+
+set_option compiler.ignoreBorrowAnnotation true in
+/-- Forward reference to `reduceRewriteRule?`. -/
+@[extern "lean_reduce_rewrite_rule"]
+private opaque reduceRewriteRuleFwd : Expr → MetaM (Option Expr)
+
+/-- Bound on the number of rewrite steps `matchRewriteHead?` takes at the head of a target, and on
+the number of times `matchRewritePattern` unfolds a target whose arguments do not match. -/
+private def maxRewriteHeadSteps : Nat := 64
+
+/--
+Returns `e` if it is an application of `fn` to `n` arguments, possibly after unfolding it. The head
+is checked after each unfolding step, since unfolding all the way to weak head normal form can turn
+an application of a projection function such as `CategoryStruct.id` into a primitive projection.
+Rewrite rules are likewise applied one at a time at the head: `whnfCore` applies them until none
+applies, and can rewrite past the expected head, as in
+`𝟙 ≫ factor (f ≫ g) ↦ factor (f ≫ g) ↦ transpMap g (factor f) ≫ factor g`.
 -/
 private def matchRewriteHead? (fn e : Expr) (n : Nat) : MetaM (Option Expr) := do
-  let e := e.consumeMData
+  let mut e := e.consumeMData
   if isRewriteHeadApp fn e n then
     return some e
-  let e ← (← whnf e).toCtorIfLit
-  if isRewriteHeadApp fn e n then
-    return some e
+  for _ in [:maxRewriteHeadSteps] do
+    let some e' ← reduceRewriteRuleFwd e | break
+    e := e'.consumeMData
+    if isRewriteHeadApp fn e n then
+      return some e
+  let e' ← match (← whnfUntilRewriteHeadFwd fn e) with
+    | some e' => pure e'
+    | none    => (← whnf e).toCtorIfLit
+  let e' ← match fn with
+    | .const c _ => if (← projFnOfHead? e') == some c then pure ((← projAsProjFn? e' c).getD e') else pure e'
+    | _          => pure e'
+  if isRewriteHeadApp fn e' n then
+    return some e'
   return none
+
+/-- The binder infos of the first `n` binders of the type of the rigid head `fn`. -/
+private def rewriteHeadBinderInfos (fn : Expr) (n : Nat) : MetaM (Array BinderInfo) := do
+  let mut type ← match fn with
+    | .const c _ => pure (← getConstInfo c).type
+    | _          => instantiateMVars (← inferType fn)
+  let mut infos := #[]
+  for _ in [:n] do
+    let .forallE _ _ b bi := type.consumeMData | break
+    infos := infos.push bi
+    type := b
+  return infos
+
+private def deferRewritePattern (p e : Expr) : RewriteMatchM Unit :=
+  modify fun s => { s with deferred := s.deferred.push (p, e) }
+
+/-- Whether every pattern variable occurring in `p` is already bound. -/
+private def rewriteVarsBound (p : Expr) : RewriteMatchM Bool := do
+  let subst := (← get).subst
+  return (List.range p.looseBVarRange).all fun i => !p.hasLooseBVar i || (subst[i]?.join).isSome
+
+mutual
+
+/--
+Matches the arguments `ps` of a pattern headed by `fn` against the arguments `es` of the target.
+
+Implicit arguments that are bare variables are matched first, then explicit arguments, then the
+other implicit arguments. Implicit arguments are determined by the explicit ones up to defeq, e.g. an
+index `f ≫ g` of a type that the target reaches as `𝟙 x`, and the same instance can be reached along
+different paths. So an implicit argument whose variables are already bound is checked up to defeq:
+matching it structurally could bind them differently, e.g. `f₁ ≫ f₂` against `𝟙 a ≫ f` with
+`f₁ := 𝟙 a` where the explicit arguments give `f₁ := f`. Otherwise it is matched structurally,
+falling back to defeq.
+-/
+private partial def matchRewriteArgs (fn : Expr) (ps es : Array Expr) : RewriteMatchM Bool := do
+  let binfos ← rewriteHeadBinderInfos fn ps.size
+  let isImplicit (i : Nat) := binfos[i]?.any (!·.isExplicit)
+  for p in ps, e in es, i in [:ps.size] do
+    if isImplicit i && p.consumeMData.isBVar then
+      unless (← matchRewritePattern p e) do return false
+  for p in ps, e in es, i in [:ps.size] do
+    unless isImplicit i do
+      unless (← matchRewritePattern p e) do return false
+  for p in ps, e in es, i in [:ps.size] do
+    if isImplicit i && !p.consumeMData.isBVar then
+      if (← rewriteVarsBound p) then
+        deferRewritePattern p e
+      else
+        let s ← get
+        unless (← matchRewritePattern p e) do
+          set s
+          deferRewritePattern p e
+  return true
 
 private partial def matchRewritePattern (p e : Expr) : RewriteMatchM Bool := do
   if !p.hasLooseBVars then
-    modify fun s => { s with closed := s.closed.push (p, e) }
+    deferRewritePattern p e
     return true
   match p.consumeMData with
   | .bvar i =>
     if let some v := (← get).subst[i]! then
-      modify fun s => { s with nonlinear := s.nonlinear.push (v, e) }
+      -- Checked right away, so that a mismatch makes the enclosing application unfold further.
+      isDefEq v e
     else
       modify fun s => { s with subst := s.subst.set! i (some e) }
-    return true
+      return true
   | p@(.app ..) =>
     let fn := p.getAppFn
-    unless fn.isConst || fn.isFVar do return false
+    unless fn.isConst || fn.isFVar do
+      deferRewritePattern p e
+      return true
     let ps := p.getAppArgs
-    let some e ← matchRewriteHead? fn e ps.size | return false
-    if let .const _ us := fn then
-      unless (← matchRewriteLevels us e.getAppFn.constLevels!) do return false
-    for p in ps, e in e.getAppArgs do
-      unless (← matchRewritePattern p e) do return false
+    -- The target may reach the head `fn` more than once while unfolding, e.g. `D.id x` for a
+    -- displayed category `D` defined in terms of `B` before `B.id x`. If the arguments do not match,
+    -- unfold further and try again.
+    let mut e := e
+    let mut prev : Option Expr := none
+    for _ in [:maxRewriteHeadSteps] do
+      let some t ← matchRewriteHead? fn e ps.size | return false
+      -- Stop when unfolding makes no progress, e.g. a projection function that unfolds to a
+      -- primitive projection, which `matchRewriteHead?` turns back into the same application.
+      if prev == some t then return false
+      prev := some t
+      let s ← get
+      let levelsOk ← match fn with
+        | .const _ us => matchRewriteLevels us t.getAppFn.constLevels!
+        | _           => pure true
+      if levelsOk then
+        if (← matchRewriteArgs fn ps t.getAppArgs) then return true
+      set s
+      let some t' ← unfoldDefinitionFwd t | return false
+      e := t'
+    return false
+  | p =>
+    deferRewritePattern p e
     return true
-  | _ => return false
+
+end
 
 /--
 Instantiates the rule `lhs ↦ rhs` if `lhs` matches `fn args`, where `fn` is the head of `lhs` up to
 universe levels and `args` has exactly as many elements as `lhs` has arguments. The head is not
 matched as a pattern: a left-hand side without pattern variables would be compared up to defeq with
-`fn args`, whose reduction tries the rule again.
+`fn args`, whose reduction tries the rule again. For the same reason the target is not unfolded
+further when its arguments do not match.
 -/
 private def instantiateRewriteRule? (levelParams : List Name) (numVars : Nat) (lhs rhs : Expr)
     (fn : Expr) (args : Array Expr) : MetaM (Option Expr) :=
@@ -463,9 +594,7 @@ private def instantiateRewriteRule? (levelParams : List Name) (numVars : Nat) (l
     let go : RewriteMatchM Bool := do
       if let .const _ us := lhs.getAppFn then
         unless (← matchRewriteLevels us fn.constLevels!) do return false
-      for p in lhs.getAppArgs, e in args do
-        unless (← matchRewritePattern p e) do return false
-      return true
+      matchRewriteArgs lhs.getAppFn lhs.getAppArgs args
     let (ok, s) ← go.run { subst := .replicate numVars none }
     unless ok do return none
     let some lvls := levelParams.mapM s.lsubst.find? | return none
@@ -473,21 +602,24 @@ private def instantiateRewriteRule? (levelParams : List Name) (numVars : Nat) (l
     let instLevel (u : Level) := u.instantiateParams levelParams lvls
     for (p, u) in s.levels do
       unless (← isLevelDefEq (instLevel p) u) do return none
-    for (p, t) in s.closed do
-      unless (← isDefEq (p.instantiateLevelParams levelParams lvls) t) do return none
-    for (v, t) in s.nonlinear do
-      unless (← isDefEq v t) do return none
+    for (p, t) in s.deferred do
+      unless (← isDefEq ((p.instantiateLevelParams levelParams lvls).instantiate subst) t) do
+        return none
     return some <| (rhs.instantiateLevelParams levelParams lvls).instantiate subst
 
-/-- Rewrites `e` with the first applicable rewrite rule, if any. -/
-def reduceRewriteRule? (e : Expr) : MetaM (Option Expr) := do
+/--
+Rewrites `e` with the first applicable rewrite rule, if any. Later rules take precedence: they are
+usually more specific, e.g. `olift f x ≫ factor φ ↦ φ` over associativity, which could otherwise
+fire first by unfolding `olift (f ≫ g) x`.
+-/
+partial def reduceRewriteRule? (e : Expr) : MetaM (Option Expr) := do
   let fn := e.getAppFn
   match fn with
   | .const f _ =>
     let rules := getRewriteRules (← getEnv) f
     if rules.isEmpty then return none
     let args := e.getAppArgs
-    for rule in rules do
+    for rule in rules.reverse do
       let n := rule.lhs.getAppNumArgs
       if args.size < n then continue
       if let some r ← instantiateRewriteRule? rule.levelParams rule.numVars rule.lhs rule.rhs fn (args.extract 0 n) then
@@ -498,13 +630,20 @@ def reduceRewriteRule? (e : Expr) : MetaM (Option Expr) := do
     let rules ← getLocalRewriteRules head
     if rules.isEmpty then return none
     let args := e.getAppArgs
-    for rule in rules do
+    for rule in rules.reverse do
       let n := rule.lhs.getAppNumArgs
       if args.size < n then continue
       if let some r ← instantiateRewriteRule? [] rule.numVars rule.lhs rule.rhs fn (args.extract 0 n) then
         trace[Meta.whnf] "local rewrite rule {mkFVar rule.fvarId}"
         return some (mkAppN r (args.extract n))
     return none
+  | .proj .. =>
+    -- Rules on a projection function also apply to the corresponding primitive projection.
+    unless hasRewriteRules (← getEnv) do return none
+    let some projFn ← projFnOfHead? e | return none
+    if (getRewriteRules (← getEnv) projFn).isEmpty then return none
+    let some e ← projAsProjFn? e projFn | return none
+    reduceRewriteRule? e
   | _ => return none
 
 -- ===========================
@@ -796,12 +935,10 @@ where
           | .stuck _      => pure e
           | .notMatcher   =>
             let .const cname lvls := f'.getAppFn |
-              if f'.getAppFn.isFVar then
-                match (← reduceRewriteRule? e) with
-                | some eNew => go eNew
-                | none      => return e
-              else
-                return e
+              -- Local rewrite rules, and rules on projection functions applied to primitive projections
+              match (← reduceRewriteRule? e) with
+              | some eNew => go eNew
+              | none      => return e
             let some cinfo := (← getEnv).find? cname | return e
             let stuck (_ : Unit) : MetaM Expr := do
               match (← reduceRewriteRule? e) with
@@ -822,7 +959,10 @@ where
         let k (c : Expr) := do
           match (← projectCore? c i) with
           | some e => go e
-          | none => return e
+          | none =>
+            match (← reduceRewriteRule? e) with
+            | some eNew => go eNew
+            | none      => return e
         match (← getConfig).proj with
         | .no => return e
         | .yes => k (← go c)
@@ -1092,6 +1232,30 @@ def whnfUntil (e : Expr) (declName : Name) : MetaM (Option Expr) := do
     return e
   else
     return none
+
+/-- Unfolds `e` until it is headed by the rigid head `fn` (a constant or a local variable). -/
+def whnfUntilRewriteHead? (fn e : Expr) : MetaM (Option Expr) := do
+  let isHead (e : Expr) := match fn, e.getAppFn with
+    | .const c _, .const d _ => c == d
+    | .fvar x,    .fvar y    => x == y
+    | _,          _          => false
+  let e ← whnfHeadPred e (fun e => return !isHead e)
+  return if isHead e then some e else none
+
+set_option compiler.ignoreBorrowAnnotation true in
+@[export lean_whnf_until_rewrite_head]
+private def whnfUntilRewriteHeadImp (fn e : Expr) : MetaM (Option Expr) :=
+  whnfUntilRewriteHead? fn e
+
+set_option compiler.ignoreBorrowAnnotation true in
+@[export lean_unfold_definition_for_rewrite]
+private def unfoldDefinitionForRewriteImp (e : Expr) : MetaM (Option Expr) :=
+  unfoldDefinition? e
+
+set_option compiler.ignoreBorrowAnnotation true in
+@[export lean_reduce_rewrite_rule]
+private def reduceRewriteRuleImp (e : Expr) : MetaM (Option Expr) :=
+  reduceRewriteRule? e
 
 /-- Applies `whnfCore` while unfolding type annotations (`outParam`/`optParam`/etc.). -/
 partial def whnfCoreUnfoldingAnnotations (e : Expr) : MetaM Expr :=
