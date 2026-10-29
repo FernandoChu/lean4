@@ -866,6 +866,30 @@ optional<expr> type_checker::instantiate_rewrite_rule(rewrite_rule const & rule,
    order, and local rules are tried from the last one. */
 optional<expr> type_checker::reduce_rewrite_rule(expr const & e) {
     expr const & fn = get_app_fn(e);
+    /* Cheap checks first, so that terms whose head has no rules do not reach the cache. */
+    if (is_fvar(fn)) {
+        if (!has_local_rewrite_rule(fn))
+            return none_expr();
+    } else if (is_constant(fn)) {
+        if (!m_st->m_has_rewrite_rules || get_rewrite_rules(const_name(fn)).empty())
+            return none_expr();
+    } else if (is_proj(fn)) {
+        if (!m_st->m_has_rewrite_rules || !proj_idx(fn).is_small() ||
+            !get_proj_rule_head(proj_sname(fn), proj_idx(fn).get_small_value()))
+            return none_expr();
+    } else {
+        return none_expr();
+    }
+    auto it = m_st->m_rewrite_cache.find(e);
+    if (it != m_st->m_rewrite_cache.end())
+        return it->second;
+    optional<expr> r = reduce_rewrite_rule_core(e);
+    m_st->m_rewrite_cache.insert(mk_pair(e, r));
+    return r;
+}
+
+optional<expr> type_checker::reduce_rewrite_rule_core(expr const & e) {
+    expr const & fn = get_app_fn(e);
     if (is_proj(fn)) {
         /* Rules on a projection function also apply to the corresponding primitive projection. */
         if (!m_st->m_has_rewrite_rules || !proj_idx(fn).is_small())
@@ -989,6 +1013,7 @@ void type_checker::add_local_rewrite_rule(expr const & binder_type) {
     m_st->m_whnf_core.clear();
     m_st->m_whnf.clear();
     m_st->m_failure.clear();
+    m_st->m_rewrite_cache.clear();
 }
 
 /* Checks that the argument `LocalRewrite (∀ xs, lhs = rhs)` of the interface application `e` holds

@@ -60,6 +60,10 @@ public:
            Computed on first use. */
         bool                      m_proj_rule_heads_init = false;
         name_hash_map<name>       m_proj_rule_heads;
+        /* Results of `reduce_rewrite_rule`, including failures, which are the common case: `whnf_core`
+           is not cached when it is called with `cheap_proj`, as `is_def_eq_core` does, so the same
+           stuck term would otherwise be matched against the rules again at every step. */
+        expr_map<optional<expr>>  m_rewrite_cache;
         name_hash_map<unsigned>   m_interface_arity;
         friend type_checker;
     public:
@@ -157,6 +161,7 @@ private:
     optional<expr> proj_as_proj_fn(expr const & e, name const & fn);
     optional<expr> instantiate_rewrite_rule(rewrite_rule const & rule, expr const & fn, expr const * args);
     optional<expr> reduce_rewrite_rule(expr const & e);
+    optional<expr> reduce_rewrite_rule_core(expr const & e);
     bool has_local_rewrite_rule(expr const & fvar) const;
     void add_local_rewrite_rule(expr const & binder_type);
     void check_local_rewrite_instance(expr const & binder_type, expr const & e);
