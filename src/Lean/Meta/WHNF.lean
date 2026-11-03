@@ -608,6 +608,34 @@ private def instantiateRewriteRule? (levelParams : List Name) (numVars : Nat) (l
     return some <| (rhs.instantiateLevelParams levelParams lvls).instantiate subst
 
 /--
+Memoizes `reduceRewriteRule? e`, including failures, as the kernel does. Matching can unfold the
+arguments of `e` to weak head normal form, and `whnfCore` and `isDefEq` reduce the same applications
+over and over, but the `whnf` cache only holds closed terms. Like the `inferType` cache, this one
+also holds terms with free variables, whose meaning is fixed within a declaration. It skips terms
+with metavariables, whose matching depends on their assignment, and contexts that the key does not
+record: local rewrite rules, a custom unfolding predicate and zeta-delta tracking.
+
+The results are stored in the `whnf` cache, under `e` wrapped in an application of a tag, rather
+than in a field of their own: a new field would change the layout of `Meta.Cache`, which code
+compiled against the previous layout, such as that in the `.olean` files of downstream packages,
+still uses.
+-/
+@[inline] private def withRewriteRuleCache (e : Expr) (k : MetaM (Option Expr)) :
+    MetaM (Option Expr) := do
+  let ctx ← read
+  if e.hasMVar || !ctx.localRewriteRules.isEmpty || ctx.customCanUnfoldPredicate?.isSome ||
+      ctx.trackZetaDelta then
+    return ← k
+  let key ← mkExprConfigCacheKey (mkApp (mkConst `_rewriteRuleCache) e)
+  -- Stands for "no rule applies".
+  let noRule := mkConst `_rewriteRuleCache.none
+  if let some r := (← get).cache.whnf.find? key then
+    return if r == noRule then none else some r
+  let r ← k
+  modify fun s => { s with cache.whnf := s.cache.whnf.insert key (r.getD noRule) }
+  return r
+
+/--
 Rewrites `e` with the first applicable rewrite rule, if any. Later rules take precedence: they are
 usually more specific, e.g. `olift f x ≫ factor φ ↦ φ` over associativity, which could otherwise
 fire first by unfolding `olift (f ≫ g) x`.
@@ -618,14 +646,15 @@ partial def reduceRewriteRule? (e : Expr) : MetaM (Option Expr) := do
   | .const f _ =>
     let rules := getRewriteRules (← getEnv) f
     if rules.isEmpty then return none
-    let args := e.getAppArgs
-    for rule in rules.reverse do
-      let n := rule.lhs.getAppNumArgs
-      if args.size < n then continue
-      if let some r ← instantiateRewriteRule? rule.levelParams rule.numVars rule.lhs rule.rhs fn (args.extract 0 n) then
-        trace[Meta.whnf] "rewrite rule {rule.declName}"
-        return some (mkAppN r (args.extract n))
-    return none
+    withRewriteRuleCache e do
+      let args := e.getAppArgs
+      for rule in rules.reverse do
+        let n := rule.lhs.getAppNumArgs
+        if args.size < n then continue
+        if let some r ← instantiateRewriteRule? rule.levelParams rule.numVars rule.lhs rule.rhs fn (args.extract 0 n) then
+          trace[Meta.whnf] "rewrite rule {rule.declName}"
+          return some (mkAppN r (args.extract n))
+      return none
   | .fvar head =>
     let rules ← getLocalRewriteRules head
     if rules.isEmpty then return none
