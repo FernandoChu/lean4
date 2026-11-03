@@ -40,8 +40,6 @@ theorem succ_succ_add (n : N) :
 
 Every use of such a declaration must apply it at least up to its last `LocalRewrite` parameter, and the kernel checks that each `LocalRewrite` argument holds *definitionally*. Implicit ones are filled in automatically when they do, e.g. `add Nat 0 Nat.succ (fun P z s n => Nat.rec (motive := P) z s n)`. Instantiating the rules therefore never needs an axiom. A `LocalRewrite` hypothesis introduced by `fun` or `intro` is not a rule.
 
-Tests: `tests/elab/rewrite_rules.lean`, `tests/elab/local_rewrite_rules.lean`, `tests/pkg/rewrite_rules` and `tests/pkg/local_rewrite_rules`.
-
 # Building from Source
 
 The fork's features are on the `local-rewrite-rules` branch:
