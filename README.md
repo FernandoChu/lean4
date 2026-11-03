@@ -1,4 +1,4 @@
-This is an experimental fork of **Lean 4** that adds user-declared definitional rewrite rules, in the style of Agda's rewrite rules. Neither confluence nor termination of the rules is checked, so they can make type checking loop or break subject reduction.
+This is an experimental fork of **Lean 4** that adds user-declared definitional rewrite rules, in the style of Agda's rewrite rules. Neither confluence nor termination of the rules is checked, so they can make type checking loop or (further) break subject reduction.
 
 # Fork features
 
@@ -42,26 +42,15 @@ Every use of such a declaration must apply it at least up to its last `LocalRewr
 
 Tests: `tests/elab/rewrite_rules.lean`, `tests/elab/local_rewrite_rules.lean`, `tests/pkg/rewrite_rules` and `tests/pkg/local_rewrite_rules`.
 
-# About
-
-- [Quickstart](https://lean-lang.org/install/)
-- [Homepage](https://lean-lang.org)
-- [Theorem Proving Tutorial](https://lean-lang.org/theorem_proving_in_lean4/)
-- [Functional Programming in Lean](https://lean-lang.org/functional_programming_in_lean/)
-- [Documentation Overview](https://lean-lang.org/learn/)
-- [Language Reference](https://lean-lang.org/doc/reference/latest/)
-- [Release notes](RELEASES.md) starting at v4.0.0-m3
-- [Examples](https://lean-lang.org/examples/)
-- [External Contribution Guidelines](CONTRIBUTING.md)
-
-# Installation
-
-See [Install Lean](https://lean-lang.org/install/).
-
-# Contributing
-
-Please read our [Contribution Guidelines](CONTRIBUTING.md) first.
-
 # Building from Source
 
-See [Building Lean](doc/make/index.md).
+The fork's features are on the `local-rewrite-rules` branch:
+
+```bash
+git clone -b local-rewrite-rules https://github.com/FernandoChu/lean4
+cd lean4
+cmake --preset release
+make -C build/release -j$(nproc || sysctl -n hw.logicalcpu)
+```
+
+This puts the `lean` and `lake` binaries in `build/release/stage1/bin`. See [Building Lean](doc/make/index.md) for dependencies, platform-specific setup and editor integration.
