@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 Author: Leonardo de Moura
 */
+#include <algorithm>
 #include <utility>
 #include <vector>
 #include <limits>
@@ -490,7 +491,7 @@ static bool is_let_fvar(local_ctx const & lctx, expr const & e) {
    kernel only trusts the elaborator for the choice of which checked declarations to use as rules. */
 static optional<rewrite_rule> decode_rewrite_rule(environment const & env, name const & decl_name) {
     optional<constant_info> info = env.find(decl_name);
-    if (!info || !(info->is_theorem() || info->is_axiom()))
+    if (!info || !(info->is_theorem() || info->is_axiom()) || info->is_unsafe())
         return optional<rewrite_rule>();
     expr type = info->get_type();
     unsigned num_vars = 0;
@@ -512,6 +513,9 @@ static optional<rewrite_rule> decode_rewrite_rule(environment const & env, name 
     while (is_mdata(lhs))
         lhs = mdata_expr(lhs);
     if (!is_constant(get_app_fn(lhs)) || !is_app(lhs))
+        return optional<rewrite_rule>();
+    optional<constant_info> head = env.find(const_name(get_app_fn(lhs)));
+    if (head && (head->is_constructor() || head->is_inductive()))
         return optional<rewrite_rule>();
     return optional<rewrite_rule>(rewrite_rule{info->get_lparams(), num_vars, get_app_num_args(lhs), lhs, args[2]});
 }
@@ -988,10 +992,11 @@ unsigned type_checker::get_interface_arity(name const & c) {
     return arity;
 }
 
-/* Activates the rule of an interface binder of type `binder_type`, whose free variables are in `m_lctx`.
-   Binders that do not have the form `LocalRewrite (∀ xs, f ps = rhs)` with `f` a free variable are
-   ignored, which is sound since activating a rule only ever makes more terms well-typed. */
-void type_checker::add_local_rewrite_rule(expr const & binder_type) {
+/* Activates the rule of an interface binder of type `binder_type`. Binders that do not have the form
+   `LocalRewrite (∀ xs, f ps = rhs)` with `f` one of the interface binders `scope` are ignored, which is
+   sound since activating a rule only ever makes more terms well-typed. Restricting `f` to the scope's
+   own binders ensures that a rule can only fire on terms that do not outlive the scope. */
+void type_checker::add_local_rewrite_rule(expr const & binder_type, buffer<expr> const & scope) {
     optional<expr> eqn = is_local_rewrite(binder_type);
     if (!eqn)
         return;
@@ -1006,12 +1011,26 @@ void type_checker::add_local_rewrite_rule(expr const & binder_type) {
     if (!is_constant(eq) || const_name(eq) != *g_eq || eq_args.size() != 3)
         return;
     expr lhs = consume_mdata(eq_args[1]);
-    if (!is_fvar(get_app_fn(lhs)))
+    expr const & head = get_app_fn(lhs);
+    if (!is_fvar(head) ||
+        std::none_of(scope.begin(), scope.end(), [&](expr const & x) { return fvar_name(x) == fvar_name(head); }))
         return;
     m_local_rewrite_rules.push_back(rewrite_rule{names(), num_vars, get_app_num_args(lhs), lhs, eq_args[2]});
     /* Terms over the interface's free variables may have been reduced or compared before the rule was active. */
     m_st->m_whnf_core.clear();
     m_st->m_whnf.clear();
+    m_st->m_failure.clear();
+    m_st->m_rewrite_cache.clear();
+}
+
+/* Forgets every cached result that may depend on the local rewrite rules, which are about to be
+   deactivated. */
+void type_checker::clear_local_rewrite_caches() {
+    m_st->m_infer_type[0].clear();
+    m_st->m_infer_type[1].clear();
+    m_st->m_whnf_core.clear();
+    m_st->m_whnf.clear();
+    m_st->m_success.clear();
     m_st->m_failure.clear();
     m_st->m_rewrite_cache.clear();
 }
@@ -1039,13 +1058,18 @@ void type_checker::check_local_rewrite_instance(expr const & binder_type, expr c
         throw local_rewrite_mismatch_exception(env(), m_lctx, e, eq_args[1], eq_args[2]);
 }
 
-/* Restores the local rewrite rules on exit. */
+/* Restores the local rewrite rules on exit, together with the caches that may depend on them. */
 class local_rewrite_scope {
     type_checker & m_tc;
     size_t         m_size;
 public:
     local_rewrite_scope(type_checker & tc):m_tc(tc), m_size(tc.m_local_rewrite_rules.size()) {}
-    ~local_rewrite_scope() { m_tc.m_local_rewrite_rules.resize(m_size); }
+    ~local_rewrite_scope() {
+        if (m_tc.m_local_rewrite_rules.size() != m_size) {
+            m_tc.m_local_rewrite_rules.resize(m_size);
+            m_tc.clear_local_rewrite_caches();
+        }
+    }
 };
 
 /* Checks the application `e` of a constant whose first `arity` parameters form an interface. The whole
@@ -1078,7 +1102,7 @@ expr type_checker::infer_interface_redex(expr const & e, unsigned arity) {
             expr d = instantiate_rev(binding_domain(b), fvars.size(), fvars.data());
             ensure_sort_core(infer_type_core(d, false), d);
             fvars.push_back(m_lctx.mk_local_decl(m_st->m_ngen, binding_name(b), d, binding_info(b)));
-            add_local_rewrite_rule(d);
+            add_local_rewrite_rule(d, fvars);
             b = binding_body(b);
         }
         b = instantiate_rev(b, fvars.size(), fvars.data());
@@ -1125,7 +1149,7 @@ expr type_checker::check_interface_type(expr const & type, unsigned arity, names
         expr d = instantiate_rev(binding_domain(e), fvars.size(), fvars.data());
         us.push_back(sort_level(ensure_sort_core(infer_type_core(d, false), d)));
         fvars.push_back(m_lctx.mk_local_decl(m_st->m_ngen, binding_name(e), d, binding_info(e)));
-        add_local_rewrite_rule(d);
+        add_local_rewrite_rule(d, fvars);
         e = binding_body(e);
     }
     e = instantiate_rev(e, fvars.size(), fvars.data());
@@ -1159,7 +1183,7 @@ void type_checker::check_interface_value(declaration const & d, expr const & typ
                 throw kernel_exception(env(), "declaration has local rewrite rule parameters, but the type of a "
                                        "binder of its value does not match the corresponding binder of its type");
             fvars.push_back(m_lctx.mk_local_decl(m_st->m_ngen, binding_name(t), t_d, binding_info(t)));
-            add_local_rewrite_rule(t_d);
+            add_local_rewrite_rule(t_d, fvars);
             t = binding_body(t);
             v = binding_body(v);
         }

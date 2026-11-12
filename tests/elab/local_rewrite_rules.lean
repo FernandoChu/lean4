@@ -364,4 +364,27 @@ run_meta do
     name := `kernelToFinOne', levelParams := [], hints := .opaque, safety := .safe
     type := (← mkForallFVars #[n, h, i] finOne)
     value := (← mkLambdaFVars #[n, h, i] i) }
+
+-- The rule of a redex binder must be headed by one of the redex's own binders. Otherwise the rule
+-- `g 0 ↦ 0` on the outer `g` would be cached while checking the body and then used to check the
+-- argument, proving `∀ g, g 0 = 0`:
+-- `fun g => (fun (_ : LocalRewrite (g 0 = 0)) => @id (g 0 = 0) (Eq.refl (g 0))) (Eq.refl (g 0))`.
+/--
+error: (kernel) application type mismatch
+  id (Eq.refl (g 0))
+argument has type
+  g 0 = g 0
+but function has type
+  g 0 = 0 → g 0 = 0
+-/
+#guard_msgs in
+run_meta do
+  let nat := mkConst ``Nat
+  let mkGoal (g : Expr) := mkApp3 (mkConst ``Eq [1]) nat (mkApp g (mkNatLit 0)) (mkNatLit 0)
+  let value ← withLocalDeclD `g (← mkArrow nat nat) fun g => do
+    let refl := mkApp2 (mkConst ``Eq.refl [1]) nat (mkApp g (mkNatLit 0))
+    let body := mkApp2 (mkConst ``id [0]) (mkGoal g) refl
+    mkLambdaFVars #[g] <| mkApp (.lam `h (mkApp (mkConst ``LocalRewrite) (mkGoal g)) body .default) refl
+  let type ← withLocalDeclD `g (← mkArrow nat nat) fun g => mkForallFVars #[g] (mkGoal g)
+  addDecl <| .thmDecl { name := `outerHeadLeak, levelParams := [], type, value }
 end

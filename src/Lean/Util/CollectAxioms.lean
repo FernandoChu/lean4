@@ -7,6 +7,7 @@ module
 
 prelude
 public import Lean.MonadEnv
+public import Lean.RewriteRuleExt
 
 namespace Lean
 
@@ -72,6 +73,69 @@ partial def collect
     seen   := s.seen.insert c result
     axioms := insertArray savedAxioms result
   }
+
+/-- Records the constants occurring in `e`, and the structures whose primitive projections occur in
+`e`, in the second and third components of the state. -/
+unsafe def reachUnsafe (e : Expr) : StateM (PtrSet Expr × NameSet × NameSet) Unit := do
+  if (← get).1.contains e then return
+  modify fun (v, cs, ss) => (v.insert e, cs, ss)
+  match e with
+  | .const n _       => modify fun (v, cs, ss) => (v, cs.insert n, ss)
+  | .proj sn _ b     => modify (fun (v, cs, ss) => (v, cs, ss.insert sn)) *> reachUnsafe b
+  -- The kernel expands string literals into applications of these constants.
+  | .lit (.strVal _) => modify fun (v, cs, ss) => (v, (cs.insert `Char.ofNat).insert `String.ofList, ss)
+  | .app f a         => reachUnsafe f *> reachUnsafe a
+  | .lam _ d b _     => reachUnsafe d *> reachUnsafe b
+  | .forallE _ d b _ => reachUnsafe d *> reachUnsafe b
+  | .letE _ t v b _  => reachUnsafe t *> reachUnsafe v *> reachUnsafe b
+  | .mdata _ b       => reachUnsafe b
+  | _                => pure ()
+
+unsafe def reachExprsUnsafe (es : List Expr) : NameSet × NameSet :=
+  let (_, cs, ss) := (es.forM reachUnsafe).run (mkPtrSet, {}, {}) |>.2
+  (cs, ss)
+
+/-- The constants and the structures of the primitive projections occurring in `es`. -/
+@[implemented_by reachExprsUnsafe]
+opaque reachExprs (es : List Expr) : NameSet × NameSet
+
+/-- The constants the kernel may reach from the declaration `info` by reduction. -/
+def reachConstantInfo (info : ConstantInfo) : NameSet × NameSet :=
+  reachExprs <| match info with
+    | .defnInfo v    => [v.type, v.value]
+    | .thmInfo v     => [v.type, v.value]
+    | .opaqueInfo v  => [v.type, v.value]
+    | .recInfo v     => v.type :: v.rules.map (·.rhs)
+    | .inductInfo v  => v.type :: v.ctors.map (mkConst ·)
+    | info           => [info.type]
+
+/--
+The declarations justifying the `@[rewrite_rule]`s that the kernel may have applied while checking
+`c` or a declaration `c` depends on. A rule can only fire on a term headed by its head constant, or
+by a primitive projection if the head is a projection function, so it is enough to follow the
+constants and projections reachable from `c` and from the rules found along the way.
+-/
+partial def reachableRewriteRules (env : Environment) (c : Name) : Array Name :=
+  let rules := getAllRewriteRules env
+  if rules.isEmpty then #[] else
+  let rec go (todo : List Name) (seen structs : NameSet) (result : Array Name) : Array Name :=
+    match todo with
+    | [] => result
+    | n :: todo =>
+      let ruleDecls := (rules.find? n |>.getD #[]).map (·.declName)
+      let result := result ++ ruleDecls
+      let (cs, ss) := match env.checked.get.find? n with
+        | some info => reachConstantInfo info
+        | none      => ({}, {})
+      let newStructs := ss.toList.filter (!structs.contains ·)
+      let structs := newStructs.foldl (·.insert ·) structs
+      let projHeads := if newStructs.isEmpty then [] else
+        rules.toList.filterMap fun (head, _) =>
+          if newStructs.contains head.getPrefix then some head else none
+      let (todo, seen) := (ruleDecls.toList ++ cs.toList ++ projHeads).foldl (init := (todo, seen))
+        fun (todo, seen) n => if seen.contains n then (todo, seen) else (n :: todo, seen.insert n)
+      go todo seen structs result
+  go [c] (({} : NameSet).insert c) {} #[]
 
 /-- Collect axioms for `c` and return its sorted axiom list from the cache. -/
 def collectAndGet
@@ -145,12 +209,20 @@ builtin_initialize exportedAxiomsExt :
     asyncMode     := .mainOnly
   }
 
-/-- Collect all axioms transitively used by a constant. -/
+/--
+Collect all axioms transitively used by a constant, including the axioms used by the declarations
+justifying the `@[rewrite_rule]`s the kernel may have applied while checking the constant or its
+dependencies (see `CollectAxioms.reachableRewriteRules`): terms do not record which rules were used.
+-/
 public def collectAxioms [Monad m] [MonadEnv m] (constName : Name) : m (Array Name) := do
   let env ← getEnv
   let privateEnv := env.setExporting false
   let s := exportedAxiomsExt.getState (asyncMode := .mainOnly) env
+  let rules := CollectAxioms.reachableRewriteRules privateEnv constName
   return CollectAxioms.runM privateEnv do
-    CollectAxioms.collectAndGet s.find? constName
+    let axs ← CollectAxioms.collectAndGet s.find? constName
+    if rules.isEmpty then return axs
+    rules.forM (CollectAxioms.collect s.find?)
+    return (← get).axioms.toArray.qsort Name.lt
 
 end Lean

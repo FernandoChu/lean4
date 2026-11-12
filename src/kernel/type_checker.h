@@ -50,7 +50,8 @@ public:
            across calls. We intentionally use plain pair sets (not an equivalence-closure/union-find
            structure): `is_def_eq` is a sound but incomplete semi-decision procedure and is therefore
            not transitive, so taking a transitive closure of successful pairs would make its result
-           depend on evaluation order. */
+           depend on evaluation order. Local rewrite rules break the first assumption, so these
+           caches are cleared when the active rules change (see `local_rewrite_scope`). */
         expr_pair_set             m_success;
         expr_pair_set             m_failure;
         expr_map<expr>            m_unfold;
@@ -163,7 +164,8 @@ private:
     optional<expr> reduce_rewrite_rule(expr const & e);
     optional<expr> reduce_rewrite_rule_core(expr const & e);
     bool has_local_rewrite_rule(expr const & fvar) const;
-    void add_local_rewrite_rule(expr const & binder_type);
+    void add_local_rewrite_rule(expr const & binder_type, buffer<expr> const & scope);
+    void clear_local_rewrite_caches();
     void check_local_rewrite_instance(expr const & binder_type, expr const & e);
     unsigned get_interface_arity(name const & c);
 public:

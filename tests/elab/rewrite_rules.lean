@@ -317,3 +317,52 @@ attribute [rewrite_rule] plus
 /-- error: Invalid attribute scope: Attribute `[rewrite_rule]` must be global, not `local` -/
 #guard_msgs in
 attribute [local rewrite_rule] diff_self
+
+/-! ## Axioms used by rules are tracked -/
+
+def idNat (n : Nat) : Nat := n
+theorem idNat_eq : idNat = fun n => n := rfl
+
+-- The proof of `bogus` is `sorry`, so `idNat 0 ↦ 1` lets the kernel prove `False`.
+/-- warning: declaration uses `sorry` -/
+#guard_msgs in
+@[rewrite_rule] theorem bogus (n : Nat) : idNat n = n + 1 := sorry
+
+theorem bogusFalse : False :=
+  Nat.zero_ne_one ((congrFun idNat_eq 0).symm.trans (rfl : idNat 0 = 1))
+
+/-- info: 'bogusFalse' depends on axioms: [sorryAx] -/
+#guard_msgs in
+#print axioms bogusFalse
+
+def idNat' (n : Nat) : Nat := n
+
+/-- error: invalid rewrite rule `unsafeRule`: must not be unsafe -/
+#guard_msgs in
+@[rewrite_rule] unsafe axiom unsafeRule (n : Nat) : idNat' n = n + 1
+
+-- The kernel ignores a rule justified by an unsafe declaration even if a metaprogram registers it.
+section
+open Lean
+run_meta do
+  let .forallE _ _ body _ := (← getConstInfo `unsafeRule).type | throwError "unexpected type"
+  let some (_, lhs, rhs) := body.eq? | throwError "unexpected type"
+  let rule : RewriteRule :=
+    { declName := `unsafeRule, head := ``idNat', levelParams := [], numVars := 1, lhs, rhs }
+  modifyEnv (rewriteRuleExt.addEntry (log := .decl rule.head) · rule)
+
+/--
+error: (kernel) declaration type mismatch, 'unsafeRuleUse' has type
+  idNat' 0 = idNat' 0
+but it is expected to have type
+  idNat' 0 = 1
+-/
+#guard_msgs in
+run_meta do
+  let nat := mkConst ``Nat
+  let lhs := mkApp (mkConst ``idNat') (mkNatLit 0)
+  addDecl <| .thmDecl {
+    name := `unsafeRuleUse, levelParams := []
+    type := mkApp3 (mkConst ``Eq [1]) nat lhs (mkNatLit 1)
+    value := mkApp2 (mkConst ``Eq.refl [1]) nat lhs }
+end
